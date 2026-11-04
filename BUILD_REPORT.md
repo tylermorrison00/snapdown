@@ -252,3 +252,7 @@ runtime's network policy. Evidence:
 - First Actions build failed at :app:checkDebugAarMetadata: "Could not find com.yausername.youtubedl-android:0.18.0" — that coordinate had no artifact name and is not on Maven Central.
 - Correct coordinate per upstream youtubedl-android README: io.github.junkfood02.youtubedl-android:library:0.18.1 + ffmpeg:0.18.1, from Maven Central, plus android:extractNativeLibs="true" and abiFilters x86/x86_64/armeabi-v7a/arm64-v8a.
 - Fix pushed to main; workflow (already in repo via web UI) re-runs on push. No APK claimed until a run succeeds and an artifact is produced.
+
+## Build fix 2 — Actions run 41896184953 FAILED, root cause found
+- Failed at :app:compileDebugKotlin: "Could not find androidx.compose.compiler:compiler:1.6.14" — that version does not exist.
+- Fix: kotlinCompilerExtensionVersion 1.6.14 -> 1.6.10 (published compiler for Kotlin 1.9.24 / Compose BOM 2024.06.00).

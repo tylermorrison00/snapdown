@@ -38,7 +38,10 @@ android {
         compose = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.6.14"
+        // 1.6.14 does not exist on Google Maven / Maven Central, which failed
+        // the second Actions build at :app:compileDebugKotlin.
+        // 1.6.10 is the published compiler for Kotlin 1.9.24 / BOM 2024.06.00.
+        kotlinCompilerExtensionVersion = "1.6.10"
     }
     packaging {
         resources {
