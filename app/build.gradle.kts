@@ -14,6 +14,9 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += listOf("x86", "x86_64", "armeabi-v7a", "arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -62,9 +65,13 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.4.0")
 
     // Free/open-source download engine, no API key, no paid API.
-    // youtubedl-android bundles yt-dlp. If this artifact cannot be fetched
-    // at build time, the build will fail honestly — do not substitute a paid API.
-    implementation("com.yausername.youtubedl-android:0.18.0")
+    // youtubedl-android bundles yt-dlp. Correct Maven Central coordinate
+    // (per upstream README): io.github.junkfood02.youtubedl-android:library
+    // + ffmpeg, version 0.18.1. The old com.yausername...:0.18.0 coordinate
+    // had no artifact name and is not on Maven Central, which failed the
+    // first Actions build at :app:checkDebugAarMetadata.
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

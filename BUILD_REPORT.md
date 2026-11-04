@@ -247,3 +247,8 @@ runtime's network policy. Evidence:
   as tylermorrison00), which is allowed to create workflow files — then
   Actions will run on the next push. Do NOT claim an APK until an Actions
   artifact is actually produced.
+
+## Build fix 2026-11-05 ~00:20 PKT — Actions run 41888017225 FAILED, root cause found
+- First Actions build failed at :app:checkDebugAarMetadata: "Could not find com.yausername.youtubedl-android:0.18.0" — that coordinate had no artifact name and is not on Maven Central.
+- Correct coordinate per upstream youtubedl-android README: io.github.junkfood02.youtubedl-android:library:0.18.1 + ffmpeg:0.18.1, from Maven Central, plus android:extractNativeLibs="true" and abiFilters x86/x86_64/armeabi-v7a/arm64-v8a.
+- Fix pushed to main; workflow (already in repo via web UI) re-runs on push. No APK claimed until a run succeeds and an artifact is produced.
