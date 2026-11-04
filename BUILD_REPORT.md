@@ -260,3 +260,7 @@ runtime's network policy. Evidence:
 ## Build fix 3 — Actions run 41897611081 FAILED, root cause found
 - Failed at :app:compileDebugKotlin: "Could not find androidx.compose.compiler:compiler:1.6.10" — Google Maven metadata shows that artifact stops at 1.5.15; 1.6.x is not published there.
 - Fix: remove composeOptions/kotlinCompilerExtensionVersion, use JetBrains Compose Compiler Gradle plugin org.jetbrains.kotlin.plugin.compose version 1.9.24 (same as Kotlin), which supplies the compiler.
+
+## Build fix 4 — Actions run 41900150820 FAILED, root cause found
+- Failed at root build.gradle.kts line 1: Plugin org.jetbrains.kotlin.plugin.compose:1.9.24 not found on Gradle Plugin Portal — that plugin version does not exist; it exists for 2.0.21.
+- Fix: Kotlin 1.9.24 -> 2.0.21, Compose plugin 2.0.21, Compose BOM 2024.06.00 -> 2024.09.00.
