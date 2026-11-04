@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -37,12 +38,10 @@ android {
     buildFeatures {
         compose = true
     }
-    composeOptions {
-        // 1.6.14 does not exist on Google Maven / Maven Central, which failed
-        // the second Actions build at :app:compileDebugKotlin.
-        // 1.6.10 is the published compiler for Kotlin 1.9.24 / BOM 2024.06.00.
-        kotlinCompilerExtensionVersion = "1.6.10"
-    }
+    // No composeOptions block: androidx.compose.compiler:compiler stops at
+    // 1.5.15 on Google Maven, so 1.6.x versions fail resolution. The JetBrains
+    // Compose Compiler Gradle plugin (above, version = Kotlin 1.9.24) supplies
+    // the compiler instead.
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
