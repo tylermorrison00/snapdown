@@ -49,12 +49,12 @@ object UpdateChecker {
         }
     }
 
-    suspend fun downloadAndInstall(context: Context, info: UpdateInfo, onProgress: (Int) -> Unit): Boolean = withContext(Dispatchers.IO) {
+    suspend fun downloadApk(context: Context, info: UpdateInfo, onProgress: (Int) -> Unit): File? = withContext(Dispatchers.IO) {
         try {
             val conn = URL(info.downloadUrl).openConnection() as HttpURLConnection
             conn.connectTimeout = 15000
             conn.readTimeout = 30000
-            if (conn.responseCode != 200) return@withContext false
+            if (conn.responseCode != 200) return@withContext null
             val total = conn.contentLength
             val outFile = File(context.cacheDir, info.fileName)
             conn.inputStream.use { input ->
@@ -69,19 +69,41 @@ object UpdateChecker {
                     }
                 }
             }
-            withContext(Dispatchers.Main) {
-                val uri: Uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outFile)
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "application/vnd.android.package-archive")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
+            outFile
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Opens the Android installer for a downloaded APK. Returns false if install permission is missing. */
+    fun installApk(context: Context, file: File): Boolean {
+        if (!canInstall(context)) {
+            // Open the system screen to allow SnapDown to install unknown apps.
+            val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                data = Uri.parse("package:${context.packageName}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            context.startActivity(intent)
+            return false
+        }
+        return try {
+            val uri: Uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
             true
         } catch (_: Exception) {
             false
         }
+    }
+
+    suspend fun downloadAndInstall(context: Context, info: UpdateInfo, onProgress: (Int) -> Unit): File? {
+        val file = downloadApk(context, info, onProgress) ?: return null
+        installApk(context, file)
+        return file
     }
 
     fun canInstall(context: Context): Boolean {

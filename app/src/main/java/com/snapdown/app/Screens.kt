@@ -231,6 +231,7 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
     var quality by remember { mutableStateOf(settings.defaultQuality) }
     var updateStatus by remember { mutableStateOf("") }
     var updateProgress by remember { mutableStateOf<Int?>(null) }
+    var downloadedFile by remember { mutableStateOf<java.io.File?>(null) }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
         Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
@@ -260,11 +261,22 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                                 updateStatus = "No update found yet."
                             } else {
                                 updateStatus = "Update ${info.version} found, downloading…"
-                                val ok = UpdateChecker.downloadAndInstall(context, info) { p ->
+                                val file = UpdateChecker.downloadApk(context, info) { p ->
                                     updateProgress = p
                                 }
-                                updateStatus = if (ok) "Downloaded, install it now." else "Download failed, try again."
                                 updateProgress = null
+                                if (file == null) {
+                                    updateStatus = "Download failed, try again."
+                                } else {
+                                    downloadedFile = file
+                                    if (UpdateChecker.canInstall(context)) {
+                                        UpdateChecker.installApk(context, file)
+                                        updateStatus = "Downloaded. Tap Install Now below if the installer did not open."
+                                    } else {
+                                        updateStatus = "Downloaded. Allow install permission, then tap Install Now."
+                                        UpdateChecker.installApk(context, file)
+                                    }
+                                }
                             }
                         }
                     },
@@ -279,6 +291,20 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                 if (updateStatus.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     Text(updateStatus, fontSize = 13.sp)
+                }
+                if (downloadedFile != null) {
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            downloadedFile?.let { file ->
+                                if (!UpdateChecker.installApk(context, file)) {
+                                    updateStatus = "Allow install permission first, then tap Install Now again."
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                    ) { Text("Install Now", fontWeight = FontWeight.Bold) }
                 }
             }
         }
