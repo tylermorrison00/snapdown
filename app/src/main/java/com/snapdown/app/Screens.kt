@@ -256,6 +256,12 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                         updateStatus = "Checking for update…"
                         updateProgress = null
                         scope.launch {
+                            // If the APK is already downloaded, do not download again — just open the installer.
+                            downloadedFile?.takeIf { it.exists() }?.let { file ->
+                                UpdateChecker.installApk(context, file)
+                                updateStatus = "Installer khul raha hai, Install dabao."
+                                return@launch
+                            }
                             val info = UpdateChecker.check(context)
                             if (info == null) {
                                 updateStatus = "No update found yet."
@@ -269,13 +275,8 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                                     updateStatus = "Download failed, try again."
                                 } else {
                                     downloadedFile = file
-                                    if (UpdateChecker.canInstall(context)) {
-                                        UpdateChecker.installApk(context, file)
-                                        updateStatus = "Downloaded. Tap Install Now below if the installer did not open."
-                                    } else {
-                                        updateStatus = "Downloaded. Allow install permission, then tap Install Now."
-                                        UpdateChecker.installApk(context, file)
-                                    }
+                                    UpdateChecker.installApk(context, file)
+                                    updateStatus = "Downloaded. Installer khul raha hai, Install dabao."
                                 }
                             }
                         }
@@ -292,20 +293,9 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                     Spacer(Modifier.height(8.dp))
                     Text(updateStatus, fontSize = 13.sp)
                 }
-                if (downloadedFile != null) {
-                    Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = {
-                            downloadedFile?.let { file ->
-                                if (!UpdateChecker.installApk(context, file)) {
-                                    updateStatus = "Allow install permission first, then tap Install Now again."
-                                }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                    ) { Text("Install Now", fontWeight = FontWeight.Bold) }
-                }
+                // No extra Install button: the installer opens automatically
+                // after download. Android still shows its own system Install
+                // screen once — that one tap cannot be skipped.
             }
         }
     }
