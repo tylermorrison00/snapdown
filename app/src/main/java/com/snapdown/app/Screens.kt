@@ -29,7 +29,7 @@ fun GradientCard(modifier: Modifier = Modifier, content: @Composable ColumnScope
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(24.dp))
-            .background(Brush.horizontalGradient(listOf(Color(0xFF2563EB), Color(0xFF7C3AED), Color(0xFF9333EA))))
+            .background(Brush.horizontalGradient(listOf(Color(0xFF22C55E), Color(0xFF0284C7), Color(0xFF06B6D4))))
             .padding(20.dp),
         content = content,
     )
@@ -226,6 +226,7 @@ fun DownloadsScreen(gallery: GalleryStore) {
 
 @Composable
 fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
+    val context = LocalContext.current
     var quality by remember { mutableStateOf(settings.defaultQuality) }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
@@ -235,7 +236,6 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                     Text("Dark theme", fontWeight = FontWeight.Bold)
                     Switch(checked = darkTheme, onCheckedChange = { onThemeChange(it) })
                 }
-                Text("Dark is the default. Light is also premium.", fontSize = 12.sp)
                 Spacer(Modifier.height(12.dp))
                 Text("Default quality: $quality", fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -243,16 +243,21 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                         FilterChip(selected = quality == q, onClick = { quality = q; settings.defaultQuality = q }, label = { Text(q) })
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                Text("Download folder: ${settings.downloadFolder}", fontSize = 13.sp)
             }
         }
         Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("About SnapDown", fontWeight = FontWeight.Bold)
-                Text("Version 1.0.0 • Android only • Sideload via own website", fontSize = 13.sp)
-                Text("No ads. No paid API. Download engine: yt-dlp (open source).", fontSize = 13.sp)
-                Text("Public videos only. Private / DRM videos will fail. Platforms change often — yt-dlp updates may be needed.", fontSize = 13.sp)
+                Button(
+                    onClick = {
+                        val intent = Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/tylermorrison00/snapdown/actions"),
+                        )
+                        context.startActivity(intent)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                ) { Text("Update App", fontWeight = FontWeight.Bold) }
             }
         }
     }

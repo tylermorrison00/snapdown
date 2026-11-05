@@ -7,14 +7,14 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// Premium palette: blue-purple gradient accents, clean in both themes.
-private val Purple = Color(0xFF7C3AED)
-private val Blue = Color(0xFF2563EB)
-private val Cyan = Color(0xFF00D4FF)
+// Premium palette: green-blue gradient accents matching the SnapDown logo, clean in both themes.
+private val Green = Color(0xFF22C55E)
+private val Blue = Color(0xFF0284C7)
+private val Cyan = Color(0xFF06B6D4)
 
 private val DarkScheme = darkColorScheme(
     primary = Cyan,
-    secondary = Purple,
+    secondary = Green,
     background = Color(0xFF0B1220),
     surface = Color(0xFF131E33),
     surfaceVariant = Color(0xFF1A2947),
@@ -24,7 +24,7 @@ private val DarkScheme = darkColorScheme(
 
 private val LightScheme = lightColorScheme(
     primary = Blue,
-    secondary = Purple,
+    secondary = Green,
     background = Color(0xFFE8EEF8),
     surface = Color(0xFFFFFFFF),
     surfaceVariant = Color(0xFFDBE6F5),
