@@ -29,7 +29,7 @@ fun GradientCard(modifier: Modifier = Modifier, content: @Composable ColumnScope
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(24.dp))
-            .background(Brush.horizontalGradient(listOf(Color(0xFF22C55E), Color(0xFF0284C7), Color(0xFF06B6D4))))
+            .background(Brush.horizontalGradient(listOf(Color(0xFF2E9BFF), Color(0xFF22C55E))))
             .padding(20.dp),
         content = content,
     )
