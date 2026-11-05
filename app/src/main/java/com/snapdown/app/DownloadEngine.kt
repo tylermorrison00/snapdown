@@ -22,8 +22,30 @@ object DownloadEngine {
         try {
             YoutubeDL.init(context)
             initialized = true
+            // Update the bundled yt-dlp to the latest stable release, so the
+            // "version older than 90 days" warning and stale Instagram
+            // extractor do not break downloads. Failure is ignored — the
+            // bundled version is used instead.
+            try {
+                YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE)
+            } catch (_: Exception) {
+            }
         } catch (e: Exception) {
             // Leave initialized=false; download attempts will surface the error.
+        }
+    }
+
+    /** Short, user-readable error instead of the raw yt-dlp log. */
+    private fun friendlyError(raw: String): String {
+        val lower = raw.lowercase()
+        return when {
+            "login required" in lower || "rate-limit" in lower || "requested content is not available" in lower ->
+                "Instagram needs login — log in once in Accounts, then try again."
+            "private" in lower -> "This video is private or login-only."
+            "drm" in lower -> "This video is DRM-protected and cannot be downloaded."
+            "unsupported url" in lower || "no video formats" in lower ->
+                "This link is not supported."
+            else -> "Download failed. Try again, or log in once in Accounts for Instagram."
         }
     }
 
@@ -60,9 +82,16 @@ object DownloadEngine {
     ): File? {
         init(context)
         if (!outDir.exists()) outDir.mkdirs()
+        // Instagram blocks anonymous downloads (login / rate-limit). Fail fast
+        // with a clear message instead of dumping the raw yt-dlp log.
+        if (detectPlatform(url) == "Instagram" && (cookiesFile == null || !cookiesFile.exists() || cookiesFile.length() == 0L)) {
+            onError("Instagram needs login — log in once in Accounts, then try again.")
+            return null
+        }
         return try {
             val request = YoutubeDLRequest(url)
             request.addOption("--no-playlist")
+            request.addOption("--no-warnings")
             // Once-only login: if the user logged in via Accounts, reuse those cookies.
             // No login is required for public videos; cookies only help logged-in-only videos.
             if (cookiesFile != null && cookiesFile.exists() && cookiesFile.length() > 0) {
@@ -100,7 +129,7 @@ object DownloadEngine {
                 file
             }
         } catch (e: Exception) {
-            onError(e.message ?: "Download failed. The link may be private, DRM-protected, or no longer supported by yt-dlp.")
+            onError(friendlyError(e.message ?: ""))
             null
         }
     }
