@@ -227,7 +227,10 @@ fun DownloadsScreen(gallery: GalleryStore) {
 @Composable
 fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var quality by remember { mutableStateOf(settings.defaultQuality) }
+    var updateStatus by remember { mutableStateOf("") }
+    var updateProgress by remember { mutableStateOf<Int?>(null) }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
         Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
@@ -249,15 +252,34 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
             Column(Modifier.padding(16.dp)) {
                 Button(
                     onClick = {
-                        val intent = Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse("https://github.com/tylermorrison00/snapdown/actions"),
-                        )
-                        context.startActivity(intent)
+                        updateStatus = "Checking for update…"
+                        updateProgress = null
+                        scope.launch {
+                            val info = UpdateChecker.check(context)
+                            if (info == null) {
+                                updateStatus = "No update found yet."
+                            } else {
+                                updateStatus = "Update ${info.version} found, downloading…"
+                                val ok = UpdateChecker.downloadAndInstall(context, info) { p ->
+                                    updateProgress = p
+                                }
+                                updateStatus = if (ok) "Downloaded, install it now." else "Download failed, try again."
+                                updateProgress = null
+                            }
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                 ) { Text("Update App", fontWeight = FontWeight.Bold) }
+                if (updateProgress != null) {
+                    Spacer(Modifier.height(12.dp))
+                    LinearProgressIndicator(progress = { (updateProgress ?: 0) / 100f }, modifier = Modifier.fillMaxWidth())
+                    Text("${updateProgress ?: 0}%", fontSize = 12.sp)
+                }
+                if (updateStatus.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(updateStatus, fontSize = 13.sp)
+                }
             }
         }
     }
