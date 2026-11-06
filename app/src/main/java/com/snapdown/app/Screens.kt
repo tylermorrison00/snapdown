@@ -54,6 +54,87 @@ fun HomeScreen(settings: SettingsStore, gallery: GalleryStore, sharedLink: Strin
     var expanded by remember { mutableStateOf(false) }
     val qualities = listOf("Best", "1080p", "720p", "480p")
 
+    // "Login first": link paste karte hi us platform ka login option dikhao;
+    // login hote hi download khud shuru ho jaye.
+    var loginPlatform by remember { mutableStateOf<PlatformLogin?>(null) }
+    var pendingDownload by remember { mutableStateOf(false) }
+
+    fun startDownload() {
+        if (link.isBlank()) { status = "Please paste a link first."; return }
+        if (!DownloadEngine.isSupported(link)) {
+            status = "This link is not from YouTube, TikTok, Facebook or Instagram."
+            return
+        }
+        // Instagram / TikTok / Facebook: login ke baghair download fail hoga,
+        // is liye pehle login khulwayo; login hote hi download khud shuru.
+        // YouTube public videos bina login ke chalte hain, is liye us par
+        // login force nahi — wahan Login first sirf aik option hai.
+        val plat = LoginManager.platformForUrl(link)
+        if (plat != null && plat.id != "youtube" && !LoginManager.hasValidLogin(context, plat.id)) {
+            loginPlatform = plat
+            pendingDownload = true
+            status = "Pehle ${plat.name} login karo — login hote hi download khud shuru ho jayega."
+            return
+        }
+        status = "Downloading…"
+        progress = 0f
+        scope.launch(Dispatchers.IO) {
+            val outDir = File(
+                context.getExternalFilesDir(null),
+                settings.downloadFolder,
+            )
+            val platform = LoginManager.platformForUrl(link)
+            val cookies = platform?.let { LoginManager.cookiesFile(context, it.id) }
+            val file = DownloadEngine.download(
+                context, link, outDir, audioOnly, quality,
+                onProgress = { progress = it },
+                onError = { status = DownloadEngine.sanitizeStatus(it) },
+                onStatus = { status = DownloadEngine.sanitizeStatus(it) },
+                cookiesFile = cookies,
+            )
+            withContext(Dispatchers.Main) {
+                progress = null
+                if (file != null) {
+                    gallery.add(
+                        DownloadedItem(
+                            id = System.currentTimeMillis().toString(),
+                            title = file.name,
+                            platform = DownloadEngine.detectPlatform(link),
+                            kind = if (audioOnly) "audio" else "video",
+                            path = file.absolutePath,
+                            url = link,
+                        )
+                    )
+                    status = "Saved: ${file.name}"
+                } else if (status.isBlank()) {
+                    status = "Download failed."
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(pendingDownload) {
+        if (pendingDownload) {
+            pendingDownload = false
+            startDownload()
+        }
+    }
+
+    if (loginPlatform != null) {
+        WebViewLoginScreen(
+            platform = loginPlatform!!,
+            onDone = { ok ->
+                loginPlatform = null
+                pendingDownload = ok
+            },
+            onCancel = {
+                loginPlatform = null
+                pendingDownload = false
+            },
+        )
+        return
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -84,6 +165,21 @@ fun HomeScreen(settings: SettingsStore, gallery: GalleryStore, sharedLink: Strin
                         color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(Modifier.height(8.dp))
+                    val detected = LoginManager.platformForUrl(link)
+                    if (detected != null && !LoginManager.hasValidLogin(context, detected.id)) {
+                        Button(
+                            onClick = { loginPlatform = detected; pendingDownload = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = Color(0xFF1F6FEB),
+                            ),
+                        ) { Text("Login first — ${detected.name}", fontWeight = FontWeight.Bold) }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Login karo, phir download khud shuru ho jayega.",
+                            color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp,
+                        )
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("YouTube", "TikTok", "Instagram", "Facebook").forEach { p ->
@@ -113,48 +209,7 @@ fun HomeScreen(settings: SettingsStore, gallery: GalleryStore, sharedLink: Strin
                     }
                     Spacer(Modifier.height(12.dp))
                     Button(
-                        onClick = {
-                            if (link.isBlank()) { status = "Please paste a link first."; return@Button }
-                            if (!DownloadEngine.isSupported(link)) {
-                                status = "This link is not from YouTube, TikTok, Facebook or Instagram."
-                                return@Button
-                            }
-                            status = "Downloading…"
-                            progress = 0f
-                            scope.launch(Dispatchers.IO) {
-                                val outDir = File(
-                                    context.getExternalFilesDir(null),
-                                    settings.downloadFolder,
-                                )
-                                val platform = LoginManager.platformForUrl(link)
-                                val cookies = platform?.let { LoginManager.cookiesFile(context, it.id) }
-                                val file = DownloadEngine.download(
-                                    context, link, outDir, audioOnly, quality,
-                                    onProgress = { progress = it },
-                                    onError = { status = DownloadEngine.sanitizeStatus(it) },
-                                    onStatus = { status = DownloadEngine.sanitizeStatus(it) },
-                                    cookiesFile = cookies,
-                                )
-                                withContext(Dispatchers.Main) {
-                                    progress = null
-                                    if (file != null) {
-                                        gallery.add(
-                                            DownloadedItem(
-                                                id = System.currentTimeMillis().toString(),
-                                                title = file.name,
-                                                platform = DownloadEngine.detectPlatform(link),
-                                                kind = if (audioOnly) "audio" else "video",
-                                                path = file.absolutePath,
-                                                url = link,
-                                            )
-                                        )
-                                        status = "Saved: ${file.name}"
-                                    } else if (status.isBlank()) {
-                                        status = "Download failed."
-                                    }
-                                }
-                            }
-                        },
+                        onClick = { startDownload() },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
                     ) { Text("Download", fontWeight = FontWeight.Bold) }
