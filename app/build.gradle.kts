@@ -56,6 +56,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     // No composeOptions block: androidx.compose.compiler:compiler stops at
     // 1.5.15 on Google Maven, so 1.6.x versions fail resolution. The JetBrains
