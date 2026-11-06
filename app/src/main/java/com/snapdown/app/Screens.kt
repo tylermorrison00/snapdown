@@ -132,7 +132,7 @@ fun HomeScreen(settings: SettingsStore, gallery: GalleryStore, sharedLink: Strin
                                     context, link, outDir, audioOnly, quality,
                                     onProgress = { progress = it },
                                     onError = { status = DownloadEngine.sanitizeStatus(it) },
-                                    onStatus = { status = it },
+                                    onStatus = { status = DownloadEngine.sanitizeStatus(it) },
                                     cookiesFile = cookies,
                                 )
                                 withContext(Dispatchers.Main) {
@@ -312,5 +312,10 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                 // screen once — that one tap cannot be skipped.
             }
         }
+        // Installed version, so a screenshot proves which build is on the phone.
+        Text(
+            "SnapDown v${BuildConfig.VERSION_NAME}",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+        )
     }
 }

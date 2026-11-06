@@ -56,6 +56,12 @@ object DownloadEngine {
         try {
             YoutubeDL.init(context)
             initialized = true
+            // Bundled yt-dlp first (works offline / on slow networks);
+            // the library's own network update is only a fallback.
+            try {
+                installBundledYtDlp(context)
+            } catch (_: Exception) {
+            }
             // Best-effort update on launch; failures are ignored here —
             // download() runs the robust update check before downloading.
             try {
@@ -136,6 +142,64 @@ object DownloadEngine {
 
     private fun ytdlpBinaryFile(context: Context): File =
         File(File(context.noBackupFilesDir, "youtubedl-android"), "yt-dlp/yt-dlp")
+
+    /**
+     * yt-dlp version bundled INSIDE the APK (app/src/main/assets/yt-dlp.b64,
+     * base64 of the yt-dlp zipapp — the push tool rejects raw binaries).
+     * v1.1.8 ships yt-dlp 2026.10.26 in the APK itself, so Instagram works
+     * even on a slow connection: the old runtime download of the binary
+     * kept failing on the user's slow mobile network and the old
+     * 2025.11.12 extractor stayed in place forever.
+     */
+    private const val BUNDLED_YTDLP_VERSION = "2026.10.26"
+
+    private fun parseVersionDate(tag: String?): Long? {
+        if (tag.isNullOrBlank()) return null
+        return try {
+            SimpleDateFormat("yyyy.MM.dd", Locale.US).parse(tag.trim())?.time
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Copy the APK-bundled yt-dlp over the library binary when it is newer. */
+    private fun installBundledYtDlp(context: Context): Boolean {
+        return try {
+            val recorded = parseVersionDate(recordedVersion(context))
+            val bundled = parseVersionDate(BUNDLED_YTDLP_VERSION) ?: return false
+            val binary = ytdlpBinaryFile(context)
+            if (recorded != null && recorded >= bundled && binary.exists()) return true
+            val tmp = File(context.cacheDir, "yt-dlp-bundled")
+            val encoded = context.assets.open("yt-dlp.b64").bufferedReader().readText()
+            val bytes = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+            FileOutputStream(tmp).use { out -> out.write(bytes) }
+            if (!tmp.exists() || tmp.length() < 1_000_000) return false
+            val head = ByteArray(32)
+            tmp.inputStream().use { it.read(head) }
+            if (!String(head, Charsets.UTF_8).startsWith("#!")) return false
+            try {
+                ZipFile(tmp).use { zip ->
+                    if (zip.getEntry("__main__.py") == null) return false
+                }
+            } catch (_: Exception) {
+                return false
+            }
+            val backup = File(context.cacheDir, "yt-dlp-backup")
+            if (binary.exists()) binary.copyTo(backup, overwrite = true)
+            tmp.copyTo(binary, overwrite = true)
+            binary.setExecutable(true, false)
+            context.getSharedPreferences(LIB_PREFS, Context.MODE_PRIVATE).edit()
+                .putString(LIB_VERSION_KEY, BUNDLED_YTDLP_VERSION)
+                .putString(LIB_VERSION_NAME_KEY, BUNDLED_YTDLP_VERSION)
+                .apply()
+            context.getSharedPreferences(MY_PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_KNOWN_VERSION, BUNDLED_YTDLP_VERSION)
+                .apply()
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     private fun tryLibraryUpdate(context: Context): Boolean {
         repeat(2) {
@@ -250,6 +314,8 @@ object DownloadEngine {
      */
     fun ensureLatestYtDlp(context: Context, onStatus: (String) -> Unit = {}) {
         try {
+            // Bundled copy first — no network needed, works on slow connections.
+            if (installBundledYtDlp(context)) return
             val prefs = context.getSharedPreferences(MY_PREFS, Context.MODE_PRIVATE)
             val last = prefs.getLong(KEY_LAST_ATTEMPT, 0L)
             if (!versionIsOld(recordedVersion(context))) return
