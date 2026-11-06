@@ -178,8 +178,10 @@ object DownloadEngine {
         val backup = File(context.cacheDir, "yt-dlp-backup")
         var downloaded: File? = null
         return try {
-            val (tag, url) = latestReleaseInfo()
-                ?: ("", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp")
+            val releaseInfo = latestReleaseInfo()
+            val tag = releaseInfo?.first ?: ""
+            val url = releaseInfo?.second
+                ?: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
             if (url.isBlank()) return false
             val conn = URL(url).openConnection() as HttpURLConnection
             conn.connectTimeout = 15000
