@@ -17,8 +17,10 @@ jobs:
           java-version: "17"
       - name: Grant gradlew execute permission
         run: chmod +x gradlew
+      # Keystore goes into app/ because Gradle resolves storeFile relative
+      # to the module directory, not the repo root.
       - name: Decode release keystore
-        run: printf '%s' "$SNAPDOWN_KEYSTORE_BASE64" | base64 -d > keystore.jks
+        run: printf '%s' "$SNAPDOWN_KEYSTORE_BASE64" | base64 -d > app/keystore.jks
         env:
           SNAPDOWN_KEYSTORE_BASE64: ${{ secrets.SNAPDOWN_KEYSTORE_BASE64 }}
       - name: Build release APK
