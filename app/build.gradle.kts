@@ -12,17 +12,36 @@ android {
         applicationId = "com.snapdown.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.1.7"
+        versionCode = 10
+        versionName = "1.1.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
     }
 
+    // One fixed signing key for every build (GitHub Actions secrets).
+    // Before v1.1.8 every Actions run generated its own debug key, so each
+    // release had a different signature and Android refused to install it
+    // over the previous version ("App not installed") — the user stayed on
+    // the old build while thinking he had updated. A fixed key makes
+    // in-app updates install cleanly from now on.
+    signingConfigs {
+        create("release") {
+            val keystoreFile = System.getenv("KEYSTORE_FILE")
+            if (keystoreFile != null) {
+                storeFile = file(keystoreFile)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             applicationIdSuffix = ""
