@@ -1,7 +1,14 @@
 package com.snapdown.app
 
+import android.Manifest
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -230,7 +237,10 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
     val scope = rememberCoroutineScope()
     var quality by remember { mutableStateOf(settings.defaultQuality) }
     var updateStatus by remember { mutableStateOf("") }
-    var updateProgress by remember { mutableStateOf<Int?>(null) }
+    // Background download state: service update karta hai, is liye Settings
+    // se nikalne ya app background me jane par bhi progress nahi rukti.
+    val updateProgress by UpdateDownloadState.progress.collectAsState()
+    val bgStatus by UpdateDownloadState.status.collectAsState()
     var downloadedFile by remember { mutableStateOf<java.io.File?>(null) }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
@@ -254,7 +264,6 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                 Button(
                     onClick = {
                         updateStatus = "Checking for update…"
-                        updateProgress = null
                         scope.launch {
                             // If the APK is already downloaded, do not download again — just open the installer.
                             downloadedFile?.takeIf { it.exists() }?.let { file ->
@@ -266,18 +275,18 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                             if (info == null) {
                                 updateStatus = "No update found yet."
                             } else {
-                                updateStatus = "Update ${info.version} found, downloading…"
-                                val file = UpdateChecker.downloadApk(context, info) { p ->
-                                    updateProgress = p
+                                // Notification permission (Android 13+) mang lo, phir
+                                // background service download karega — app band
+                                // karne par bhi nahi rukega.
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    (context as? Activity)?.let {
+                                        ActivityCompat.requestPermissions(it, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+                                    }
                                 }
-                                updateProgress = null
-                                if (file == null) {
-                                    updateStatus = "Download failed, try again."
-                                } else {
-                                    downloadedFile = file
-                                    UpdateChecker.installApk(context, file)
-                                    updateStatus = "Downloaded. Installer khul raha hai, Install dabao."
-                                }
+                                updateStatus = "Background me download ho raha hai — notification me progress dekho."
+                                UpdateDownloadService.start(context, info)
                             }
                         }
                     },
@@ -292,6 +301,10 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                 if (updateStatus.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     Text(updateStatus, fontSize = 13.sp)
+                }
+                if (bgStatus.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(bgStatus, fontSize = 13.sp)
                 }
                 // No extra Install button: the installer opens automatically
                 // after download. Android still shows its own system Install
