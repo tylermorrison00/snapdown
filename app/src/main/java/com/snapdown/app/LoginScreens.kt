@@ -50,20 +50,6 @@ fun AccountsScreen() {
     ) {
         item {
             Text("Accounts — Login Once", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Log in once per platform, then downloads reuse that login. " +
-                    "SnapDown never asks for your password in its own fields and never stores it. " +
-                    "You log in on the platform's own official page, inside this app, and only " +
-                    "the browser cookies are saved once for yt-dlp.",
-                fontSize = 13.sp,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Note: No platform shares its official app session with a third-party app, " +
-                    "so direct app-to-app login is not possible for Instagram, TikTok, Facebook or YouTube.",
-                fontSize = 12.sp,
-            )
         }
         items(LoginManager.platforms) { p ->
             val loggedIn = LoginManager.hasValidLogin(context, p.id)

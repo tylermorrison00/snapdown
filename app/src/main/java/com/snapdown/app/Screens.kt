@@ -5,10 +5,10 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -92,6 +92,9 @@ fun HomeScreen(settings: SettingsStore, gallery: GalleryStore, sharedLink: Strin
                 onStatus = { status = DownloadEngine.sanitizeStatus(it) },
                 cookiesFile = cookies,
             )
+            // Gallery copy: public Downloads/SnapDown me bhi save karo taake
+            // phone ki Gallery me video dikhe (private folder kabhi scan nahi hota).
+            if (file != null) DownloadEngine.saveToGallery(context, file)
             withContext(Dispatchers.Main) {
                 progress = null
                 if (file != null) {
@@ -222,12 +225,6 @@ fun HomeScreen(settings: SettingsStore, gallery: GalleryStore, sharedLink: Strin
                         Spacer(Modifier.height(8.dp))
                         Text(status, fontSize = 13.sp)
                     }
-                    Text(
-                        "No ads • No paid API • Public videos work without login. " +
-                            "For logged-in-only videos, log in once in Accounts — no app-to-app login is possible, " +
-                            "so Accounts uses the official login page inside the app and saves cookies only, never your password.",
-                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    )
                 }
             }
         }
@@ -260,16 +257,24 @@ fun DownloadsScreen(gallery: GalleryStore) {
                             Spacer(Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(onClick = {
+                                    // FileProvider zaroori hai: file:// URI dusri app ko
+                                    // dene par Android 7+ app crash kar deta hai
+                                    // (FileUriExposedException) — Open dabate hi app
+                                    // band hone ki asal wajah yehi thi.
+                                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(item.path))
                                     val intent = Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(Uri.fromFile(File(item.path)), if (item.kind == "audio") "audio/*" else "video/*")
+                                        setDataAndType(uri, if (item.kind == "audio") "audio/*" else "video/*")
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     }
                                     context.startActivity(intent)
                                 }) { Text("Open") }
                                 OutlinedButton(onClick = {
+                                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(item.path))
                                     val intent = Intent(Intent.ACTION_SEND).apply {
                                         type = if (item.kind == "audio") "audio/*" else "video/*"
-                                        putExtra(Intent.EXTRA_STREAM, Uri.fromFile(File(item.path)))
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
                                     context.startActivity(Intent.createChooser(intent, "Share"))
                                 }) { Text("Share") }
@@ -319,17 +324,17 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
             Column(Modifier.padding(16.dp)) {
                 Button(
                     onClick = {
-                        updateStatus = "Checking for update…"
+                        updateStatus = "App update found kar raha hai…"
                         scope.launch {
                             // If the APK is already downloaded, do not download again — just open the installer.
                             downloadedFile?.takeIf { it.exists() }?.let { file ->
                                 UpdateChecker.installApk(context, file)
-                                updateStatus = "Installer khul raha hai, Install dabao."
+                                updateStatus = "App update ho raha hai"
                                 return@launch
                             }
                             val info = UpdateChecker.check(context)
                             if (info == null) {
-                                updateStatus = "No update found yet."
+                                updateStatus = "App updated hai pehle se"
                             } else {
                                 // Notification permission (Android 13+) mang lo, phir
                                 // background service download karega — app band
@@ -341,7 +346,7 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                                         ActivityCompat.requestPermissions(it, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
                                     }
                                 }
-                                updateStatus = "Background me download ho raha hai — notification me progress dekho."
+                                updateStatus = "App update ho raha hai"
                                 UpdateDownloadService.start(context, info)
                             }
                         }
@@ -354,13 +359,12 @@ fun SettingsScreen(settings: SettingsStore, darkTheme: Boolean, onThemeChange: (
                     LinearProgressIndicator(progress = { (updateProgress ?: 0) / 100f }, modifier = Modifier.fillMaxWidth())
                     Text("${updateProgress ?: 0}%", fontSize = 12.sp)
                 }
-                if (updateStatus.isNotEmpty()) {
+                // Sirf aik line status: background service wala status aaye to wahi,
+                // warna button wala status — dono aik saath nahi dikhne chahiye.
+                val shownStatus = if (bgStatus.isNotEmpty()) bgStatus else updateStatus
+                if (shownStatus.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
-                    Text(updateStatus, fontSize = 13.sp)
-                }
-                if (bgStatus.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(bgStatus, fontSize = 13.sp)
+                    Text(shownStatus, fontSize = 13.sp)
                 }
                 // No extra Install button: the installer opens automatically
                 // after download. Android still shows its own system Install

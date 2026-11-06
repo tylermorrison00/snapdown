@@ -81,7 +81,7 @@ class UpdateDownloadService : Service() {
             startForeground(NOTIF_ID, notif)
         }
         UpdateDownloadState.progress.value = 0
-        UpdateDownloadState.status.value = "Background me download ho raha hai — notification me progress dekho."
+        UpdateDownloadState.status.value = "App update ho raha hai"
 
         scope.launch {
             try {
@@ -97,17 +97,17 @@ class UpdateDownloadService : Service() {
                 }
                 if (file == null) {
                     UpdateDownloadState.progress.value = null
-                    UpdateDownloadState.status.value = "Download failed, try again."
+                    UpdateDownloadState.status.value = "Update fail ho gaya, dobara try karo."
                     notifyFinished(version, success = false)
                 } else {
                     UpdateDownloadState.progress.value = 100
-                    UpdateDownloadState.status.value = "Downloaded. Installer khul raha hai, Install dabao."
+                    UpdateDownloadState.status.value = "App update ho raha hai"
                     notifyFinished(version, success = true)
                     UpdateChecker.installApk(applicationContext, file)
                 }
             } catch (_: Exception) {
                 UpdateDownloadState.progress.value = null
-                UpdateDownloadState.status.value = "Download failed, try again."
+                UpdateDownloadState.status.value = "Update fail ho gaya, dobara try karo."
                 notifyFinished(version, success = false)
             } finally {
                 downloading = false

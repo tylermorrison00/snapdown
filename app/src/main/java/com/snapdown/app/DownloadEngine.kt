@@ -1,6 +1,11 @@
 package com.snapdown.app
 
+import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import java.io.File
@@ -324,6 +329,43 @@ object DownloadEngine {
             onStatus("yt-dlp update ho raha hai…")
             if (tryLibraryUpdate(context)) return
             directUpdate(context)
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Copy a finished download into public Downloads/SnapDown so the phone's
+     * Gallery (and Files) shows it. Downloads saved under getExternalFilesDir
+     * are app-private and MediaStore never scans them — that is why no
+     * downloaded video ever appeared in the Gallery. API 29+: MediaStore
+     * insert (no permission needed for the app's own files). Older: direct
+     * copy + media scan (WRITE_EXTERNAL_STORAGE, maxSdk 28).
+     * Best-effort only: a failure here never breaks the in-app download.
+     */
+    fun saveToGallery(context: Context, file: File) {
+        try {
+            if (!file.exists()) return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val isAudio = file.extension.equals("mp3", ignoreCase = true)
+                val mime = if (isAudio) "audio/mpeg" else "video/mp4"
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/SnapDown")
+                }
+                val collection = if (isAudio) MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                    else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                val uri = context.contentResolver.insert(collection, values) ?: return
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    file.inputStream().use { input -> input.copyTo(out) }
+                }
+            } else {
+                val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "SnapDown")
+                if (!dir.exists()) dir.mkdirs()
+                val dest = File(dir, file.name)
+                if (!dest.exists()) file.copyTo(dest, overwrite = false)
+                MediaScannerConnection.scanFile(context, arrayOf(dest.absolutePath), null, null)
+            }
         } catch (_: Exception) {
         }
     }
