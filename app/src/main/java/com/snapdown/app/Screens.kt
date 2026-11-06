@@ -131,7 +131,8 @@ fun HomeScreen(settings: SettingsStore, gallery: GalleryStore, sharedLink: Strin
                                 val file = DownloadEngine.download(
                                     context, link, outDir, audioOnly, quality,
                                     onProgress = { progress = it },
-                                    onError = { status = it },
+                                    onError = { status = DownloadEngine.sanitizeStatus(it) },
+                                    onStatus = { status = it },
                                     cookiesFile = cookies,
                                 )
                                 withContext(Dispatchers.Main) {

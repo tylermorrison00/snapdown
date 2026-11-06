@@ -61,7 +61,7 @@ fun AccountsScreen() {
             )
         }
         items(LoginManager.platforms) { p ->
-            val loggedIn = LoginManager.hasLogin(context, p.id)
+            val loggedIn = LoginManager.hasValidLogin(context, p.id)
             Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
