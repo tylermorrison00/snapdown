@@ -3,6 +3,11 @@ package com.snapdown.app
 import android.annotation.SuppressLint
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.*
@@ -99,6 +104,7 @@ fun WebViewLoginScreen(platform: PlatformLogin, onDone: (Boolean) -> Unit, onCan
     val context = LocalContext.current
     var webView by remember { mutableStateOf<WebView?>(null) }
     var message by remember { mutableStateOf("") }
+    var loadError by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Login — ${platform.name}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -126,6 +132,15 @@ fun WebViewLoginScreen(platform: PlatformLogin, onDone: (Boolean) -> Unit, onCan
             Spacer(Modifier.height(8.dp))
             Text(message, fontSize = 13.sp)
         }
+        if (loadError.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(loadError, fontSize = 13.sp)
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = {
+                loadError = ""
+                webView?.reload()
+            }) { Text("Retry — dobara try karo") }
+        }
         Spacer(Modifier.height(8.dp))
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -135,9 +150,35 @@ fun WebViewLoginScreen(platform: PlatformLogin, onDone: (Boolean) -> Unit, onCan
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
                     )
+                    // Instagram login page fix (v1.1.9): Instagram embedded WebView
+                    // (default user-agent me "wv" hota hai) ko block kar deta hai —
+                    // server HTTP error deta hai aur WebView "Web page not available /
+                    // net::ERR_HTTP_RESPONSE_CODE_FAILURE" dikhata hai. Asal mobile
+                    // Chrome jaisa user-agent bhejo, login page ko chahiye wali
+                    // storage on karo, aur load fail ho to Retry dikhao.
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
-                    webViewClient = WebViewClient()
+                    settings.databaseEnabled = true
+                    settings.cacheMode = WebSettings.LOAD_DEFAULT
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
+                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                    settings.userAgentString =
+                        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+                    webChromeClient = WebChromeClient()
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = false
+                        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                            if (request.isForMainFrame) {
+                                loadError = "Page load nahi hua — Instagram ne is waqt page load karne se mana kar diya hai. Thora ruk kar Retry dabao."
+                            }
+                        }
+                        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                            if (request.isForMainFrame) {
+                                loadError = "Instagram ne page load karne se mana kar diya (HTTP ${errorResponse.statusCode}) — thora ruk kar Retry dabao."
+                            }
+                        }
+                    }
                     CookieManager.getInstance().setAcceptCookie(true)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                     loadUrl(platform.loginUrl)
