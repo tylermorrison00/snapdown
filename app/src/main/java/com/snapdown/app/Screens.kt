@@ -92,7 +92,7 @@ fun HomeScreen(settings: SettingsStore, gallery: GalleryStore, sharedLink: Strin
                 onStatus = { status = DownloadEngine.sanitizeStatus(it) },
                 cookiesFile = cookies,
             )
-            // Gallery copy: public Downloads/SnapDown me bhi save karo taake
+            // Gallery copy: public Movies/SnapDown me bhi save karo taake
             // phone ki Gallery me video dikhe (private folder kabhi scan nahi hota).
             if (file != null) DownloadEngine.saveToGallery(context, file)
             withContext(Dispatchers.Main) {
