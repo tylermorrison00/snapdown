@@ -2,6 +2,8 @@ package com.snapdown.app
 
 import android.content.ContentValues
 import android.content.Context
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
@@ -334,43 +336,143 @@ object DownloadEngine {
     }
 
     /**
-     * Copy a finished download into public Downloads/SnapDown so the phone's
-     * Gallery (and Files) shows it. Downloads saved under getExternalFilesDir
-     * are app-private and MediaStore never scans them — that is why no
-     * downloaded video ever appeared in the Gallery. API 29+: MediaStore
-     * insert (no permission needed for the app's own files). Older: direct
-     * copy + media scan (WRITE_EXTERNAL_STORAGE, maxSdk 28).
+     * Copy a finished download into the public Movies/SnapDown (video) or
+     * Music/SnapDown (audio) folder so the phone's Gallery shows it.
+     *
+     * Why the old code never worked (v1.2.0): it inserted into
+     * MediaStore.Video with RELATIVE_PATH "Downloads/SnapDown" — Android
+     * only allows video under Movies/ or DCIM/, so the insert threw
+     * IllegalArgumentException, which the blanket catch swallowed silently
+     * and no Gallery copy was ever made. Downloads saved under
+     * getExternalFilesDir are app-private and MediaStore never scans them.
+     * API 29+: MediaStore insert (no permission needed for the app's own
+     * files), IS_PENDING while writing, then cleared. Older: direct copy
+     * + media scan (WRITE_EXTERNAL_STORAGE, maxSdk 28).
      * Best-effort only: a failure here never breaks the in-app download.
      */
-    fun saveToGallery(context: Context, file: File) {
-        try {
-            if (!file.exists()) return
+    fun saveToGallery(context: Context, file: File): Boolean {
+        return try {
+            if (!file.exists()) return false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val isAudio = file.extension.equals("mp3", ignoreCase = true)
                 val mime = if (isAudio) "audio/mpeg" else "video/mp4"
+                val folder = if (isAudio) "Music/SnapDown" else "Movies/SnapDown"
+                val collection = if (isAudio) MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                    else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                 val values = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
                     put(MediaStore.MediaColumns.MIME_TYPE, mime)
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/SnapDown")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, folder)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
-                val collection = if (isAudio) MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                    else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                val uri = context.contentResolver.insert(collection, values) ?: return
-                context.contentResolver.openOutputStream(uri)?.use { out ->
-                    file.inputStream().use { input -> input.copyTo(out) }
+                val uri = context.contentResolver.insert(collection, values) ?: return false
+                var ok = false
+                try {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        file.inputStream().use { input -> input.copyTo(out) }
+                    }
+                    ok = true
+                } finally {
+                    val done = ContentValues().apply {
+                        put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    }
+                    context.contentResolver.update(uri, done, null, null)
                 }
+                ok
             } else {
-                val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "SnapDown")
+                val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "SnapDown")
                 if (!dir.exists()) dir.mkdirs()
                 val dest = File(dir, file.name)
                 if (!dest.exists()) file.copyTo(dest, overwrite = false)
                 MediaScannerConnection.scanFile(context, arrayOf(dest.absolutePath), null, null)
+                true
             }
         } catch (_: Exception) {
+            false
         }
     }
 
-    // ---- download ----
+    /**
+     * Merged file first: the "[Merger] Merging formats into ..." line names
+     * the final file. The old code took the FIRST "[download] Destination:"
+     * line, which is the video-only part file — if it still existed, the
+     * app saved and played a video with no audio track.
+     */
+    private fun resolveDownloadedFile(log: String, outDir: File): File? {
+        val merged = Regex("""\[Merger\] Merging formats into "(.+)"""")
+            .find(log)?.groupValues?.get(1)?.trim()?.let { File(it) }
+        if (merged != null && merged.exists()) return merged
+        val dest = Regex("""\[download\] Destination: (.+)""")
+            .find(log)?.groupValues?.get(1)?.trim()?.let { File(it) }
+        if (dest != null && dest.exists()) return dest
+        return outDir.listFiles()?.maxByOrNull { it.lastModified() }
+    }
+
+    /**
+     * True when the file has an audio track. A video that plays silent is
+     * usually an Opus-audio mp4 (YouTube's best audio is Opus, which many
+     * Android players cannot decode inside mp4) or a video-only part file.
+     * A check failure assumes the file is fine, so a broken check never
+     * blocks a download.
+     */
+    private fun fileHasAudioTrack(file: File): Boolean {
+        if (!file.exists()) return false
+        return try {
+            val ex = MediaExtractor()
+            ex.setDataSource(file.absolutePath)
+            var hasAudio = false
+            for (i in 0 until ex.trackCount) {
+                val mime = ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: ""
+                if (mime.startsWith("audio/")) {
+                    hasAudio = true
+                    break
+                }
+            }
+            ex.release()
+            hasAudio
+        } catch (_: Exception) {
+            true
+        }
+    }
+
+    /** One yt-dlp run. Returns the downloaded file, or null on failure. */
+    private fun executeDownload(
+        context: Context,
+        url: String,
+        outDir: File,
+        audioOnly: Boolean,
+        format: String?,
+        onProgress: (Float) -> Unit,
+        cookiesFile: File?,
+    ): File? {
+        return try {
+            val request = YoutubeDLRequest(url)
+            request.addOption("--no-playlist")
+            request.addOption("--no-warnings")
+            // Once-only login: if the user logged in via Accounts, reuse those cookies.
+            // No login is required for public videos; cookies only help logged-in-only videos.
+            if (cookiesFile != null && cookiesFile.exists() && cookiesFile.length() > 0) {
+                request.addOption("--cookies", cookiesFile.absolutePath)
+            }
+            if (audioOnly) {
+                request.addOption("-x")
+                request.addOption("--audio-format", "mp3")
+            } else if (format != null) {
+                request.addOption("-f", format)
+                request.addOption("--merge-output-format", "mp4")
+            }
+            // %(title)s is sanitised by yt-dlp; keep the template simple and safe.
+            val template = File(outDir, "%(title)s.%(ext)s").absolutePath
+            request.addOption("-o", template)
+
+            val response = YoutubeDL.getInstance().execute(request) { progress, _, _ ->
+                onProgress(progress)
+            }
+            resolveDownloadedFile(response.out, outDir)
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     /**
      * Downloads [url] into [outDir]. Calls [onProgress] with 0..100.
@@ -405,49 +507,28 @@ object DownloadEngine {
         }
         // Old yt-dlp breaks Instagram first — update it before downloading.
         ensureLatestYtDlp(context, onStatus)
-        return try {
-            val request = YoutubeDLRequest(url)
-            request.addOption("--no-playlist")
-            request.addOption("--no-warnings")
-            // Once-only login: if the user logged in via Accounts, reuse those cookies.
-            // No login is required for public videos; cookies only help logged-in-only videos.
-            if (cookiesFile != null && cookiesFile.exists() && cookiesFile.length() > 0) {
-                request.addOption("--cookies", cookiesFile.absolutePath)
-            }
-            if (audioOnly) {
-                request.addOption("-x")
-                request.addOption("--audio-format", "mp3")
-            } else if (quality != "Best") {
-                // e.g. "720p" -> best video <=720p + best audio, merged to mp4
-                val h = quality.filter { it.isDigit() }.toIntOrNull() ?: 1080
-                request.addOption("-f", "bestvideo[height<=$h]+bestaudio/best[height<=$h]")
-                request.addOption("--merge-output-format", "mp4")
-            } else {
-                request.addOption("-f", "bestvideo+bestaudio/best")
-                request.addOption("--merge-output-format", "mp4")
-            }
-            // %(title)s is sanitised by yt-dlp; keep the template simple and safe.
-            val template = File(outDir, "%(title)s.%(ext)s").absolutePath
-            request.addOption("-o", template)
-
-            val response = YoutubeDL.getInstance().execute(request) { progress, _, _ ->
-                onProgress(progress)
-            }
-            val out = response.out
-            // yt-dlp prints the destination; fall back to the newest file in outDir.
-            val dest = Regex("""\[download\] Destination: (.+)""")
-                .find(out)?.groupValues?.get(1)?.trim()?.let { File(it) }
-            val file = dest?.takeIf { it.exists() }
-                ?: outDir.listFiles()?.maxByOrNull { it.lastModified() }
-            if (file == null) {
-                onError("Download finished, but no file was found. The link may be private, DRM-protected, or no longer supported by yt-dlp.")
-                null
-            } else {
-                file
-            }
-        } catch (e: Exception) {
-            onError(sanitizeStatus(friendlyError(e.message ?: "")))
-            null
+        // Audio must be AAC (m4a): YouTube's best audio is Opus, and many
+        // Android players play an Opus-in-mp4 file as silent video.
+        val format = if (audioOnly) null else if (quality != "Best") {
+            // e.g. "720p" -> best video <=720p + best AAC audio, merged to mp4
+            val h = quality.filter { it.isDigit() }.toIntOrNull() ?: 1080
+            "bestvideo[height<=$h]+bestaudio[ext=m4a]/bestvideo[height<=$h]+bestaudio/best[height<=$h]"
+        } else {
+            "bestvideo+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
         }
+        var file = executeDownload(context, url, outDir, audioOnly, format, onProgress, cookiesFile)
+        // No audio track in the result? Retry once with the best single
+        // combined file (always AAC audio on YouTube/Instagram/TikTok),
+        // so a download is never a silent video.
+        if (!audioOnly && file != null && !fileHasAudioTrack(file)) {
+            onStatus("Audio nahi mila — dobara download ho raha hai…")
+            val retry = executeDownload(context, url, outDir, false, "best", onProgress, cookiesFile)
+            if (retry != null && fileHasAudioTrack(retry)) file = retry
+        }
+        if (file == null) {
+            onError("Download finished, but no file was found. The link may be private, DRM-protected, or no longer supported by yt-dlp.")
+            return null
+        }
+        return file
     }
 }
