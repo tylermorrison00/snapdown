@@ -172,12 +172,22 @@ private fun AvatarImage(uriString: String?, size: Dp) {
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
             )
         } else {
-            androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(R.mipmap.ic_launcher_round),
-                contentDescription = null,
-                modifier = Modifier.matchParentSize().clip(CircleShape),
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-            )
+            // Default avatar: khud banaya hua "S" (kala gol + lime S) — launcher
+            // icon ko painterResource se load nahi karte: mipmap-anydpi-v26 me
+            // ic_launcher_round ek adaptive-icon XML hai, aur Compose ka
+            // painterResource adaptive icon par IllegalArgumentException de kar
+            // app crash kar deta hai (v1.2.3–v1.3.0 ka crash).
+            Box(
+                Modifier.matchParentSize().clip(CircleShape).background(Color.Black),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "S",
+                    color = PiloLime,
+                    fontWeight = FontWeight.Black,
+                    fontSize = (size.value * 0.5).sp,
+                )
+            }
         }
     }
 }

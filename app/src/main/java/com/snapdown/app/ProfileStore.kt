@@ -6,21 +6,26 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -73,12 +78,22 @@ fun ProfileAvatar(profile: ProfileStore, size: Dp) {
                 contentScale = ContentScale.Crop,
             )
         } else {
-            Image(
-                painter = painterResource(R.mipmap.ic_launcher_round),
-                contentDescription = profile.name,
-                modifier = Modifier.matchParentSize().clip(CircleShape),
-                contentScale = ContentScale.Crop,
-            )
+            // Default avatar: khud banaya hua "S" (kala gol + lime S) — launcher
+            // icon ko painterResource se load nahi karte: mipmap-anydpi-v26 me
+            // ic_launcher_round ek adaptive-icon XML hai, aur Compose ka
+            // painterResource adaptive icon par IllegalArgumentException de kar
+            // app launch par hi crash kar deta hai (v1.2.3–v1.3.0 ka crash).
+            Box(
+                Modifier.matchParentSize().clip(CircleShape).background(Color.Black),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "S",
+                    color = PiloLime,
+                    fontWeight = FontWeight.Black,
+                    fontSize = (size.value * 0.5).sp,
+                )
+            }
         }
     }
 }
