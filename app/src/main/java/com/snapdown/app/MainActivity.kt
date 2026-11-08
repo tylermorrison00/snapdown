@@ -44,6 +44,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Crash catcher first: if the app dies on launch, the real stack
+        // trace lands in Downloads/SnapDown-crash.txt (see CrashLog.kt).
+        CrashLog.install(this)
         handleInstallExtra(intent)
         val settings = SettingsStore(this)
         val gallery = GalleryStore(this)
