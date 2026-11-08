@@ -5,10 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -40,7 +37,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -148,48 +144,6 @@ private fun shareItem(context: Context, item: DownloadedItem) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(intent, "Share"))
-}
-
-// Edit-panel photo preview: pending photo, warna saved profile photo,
-// warna default S logo. (Bitmap load ProfileStore.kt wale loader se.)
-@Composable
-private fun AvatarImage(uriString: String?, size: Dp) {
-    val context = LocalContext.current
-    val bitmap by produceState<Bitmap?>(initialValue = null, uriString) {
-        value = withContext(Dispatchers.IO) { loadSampledBitmap(context, uriString) }
-    }
-    Box(
-        Modifier
-            .size(size)
-            .clip(CircleShape)
-            .border(3.dp, PiloLime, CircleShape),
-    ) {
-        if (bitmap != null) {
-            androidx.compose.foundation.Image(
-                bitmap = bitmap!!.asImageBitmap(),
-                contentDescription = null,
-                modifier = Modifier.matchParentSize().clip(CircleShape),
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-            )
-        } else {
-            // Default avatar: khud banaya hua "S" (kala gol + lime S) — launcher
-            // icon ko painterResource se load nahi karte: mipmap-anydpi-v26 me
-            // ic_launcher_round ek adaptive-icon XML hai, aur Compose ka
-            // painterResource adaptive icon par IllegalArgumentException de kar
-            // app crash kar deta hai (v1.2.3–v1.3.0 ka crash).
-            Box(
-                Modifier.matchParentSize().clip(CircleShape).background(Color.Black),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "S",
-                    color = PiloLime,
-                    fontWeight = FontWeight.Black,
-                    fontSize = (size.value * 0.5).sp,
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -797,14 +751,10 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
     val updateProgress by UpdateDownloadState.progress.collectAsState()
     val bgStatus by UpdateDownloadState.status.collectAsState()
 
-    // Profile edit panel (preview .profile-edit): photo + Change photo +
-    // name input + barabar Save/Cancel. Save par hi apply hota hai.
+    // Profile edit panel (preview .profile-edit): sirf naam badalta hai —
+    // photo ka option nahi (gol avatar me sirf profile icon hota hai).
     var editOpen by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf(profile.name) }
-    var pendingPhoto by remember { mutableStateOf<String?>(null) }
-    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        pendingPhoto = uri?.toString()
-    }
 
     // Settings khulte hi update check karo, taake card sahi state dikhaye.
     LaunchedEffect(Unit) {
@@ -838,7 +788,6 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                 Row(
                     Modifier.clickable {
                         nameDraft = profile.name
-                        pendingPhoto = null
                         editOpen = !editOpen
                     },
                     verticalAlignment = Alignment.CenterVertically,
@@ -859,22 +808,6 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                     .border(1.dp, PiloBorder, RoundedCornerShape(22.dp))
                     .padding(18.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AvatarImage(pendingPhoto ?: profile.photoUri, size = 68.dp)
-                    Spacer(Modifier.width(14.dp))
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0xFF262626))
-                            .border(1.5.dp, PiloBorderLight, RoundedCornerShape(999.dp))
-                            .clickable { photoPicker.launch("image/*") }
-                            .padding(horizontal = 20.dp, vertical = 11.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("Change photo", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.5.sp)
-                    }
-                }
-                Spacer(Modifier.height(18.dp))
                 OutlinedTextField(
                     value = nameDraft,
                     onValueChange = { if (it.length <= 30) nameDraft = it },
@@ -897,8 +830,6 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                         onClick = {
                             val v = nameDraft.trim()
                             if (v.isNotEmpty()) profile.name = v
-                            pendingPhoto?.let { profile.photoUri = it }
-                            pendingPhoto = null
                             editOpen = false
                         },
                         modifier = Modifier.weight(1f),
@@ -908,7 +839,6 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                     ) { Text("Save", fontWeight = FontWeight.Black, fontSize = 15.sp) }
                     Button(
                         onClick = {
-                            pendingPhoto = null
                             editOpen = false
                         },
                         modifier = Modifier.weight(1f),
