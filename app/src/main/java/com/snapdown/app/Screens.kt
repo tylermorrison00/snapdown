@@ -927,6 +927,17 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                     onClick = {
                         val info = updateInfo ?: return@Button
                         // If the APK is already downloaded, do not download again — just open the installer.
+                        val cached = File(context.cacheDir, info.fileName)
+                        if (cached.exists()) {
+                            if (UpdateChecker.isCompleteApk(cached)) {
+                                downloadedFile = cached
+                                UpdateChecker.installApk(context, cached)
+                                updateStatus = "App update ho raha hai"
+                                return@Button
+                            }
+                            // Partial or corrupt download: drop it and re-download below.
+                            cached.delete()
+                        }
                         downloadedFile?.takeIf { it.exists() }?.let { file ->
                             UpdateChecker.installApk(context, file)
                             updateStatus = "App update ho raha hai"

@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,7 +24,7 @@ import kotlinx.coroutines.launch
 // Reason for this file: the old download lived in the Settings composable's
 // coroutine scope, so leaving Settings / home / the app cancelled it.
 // A foreground service keeps downloading even in background, and the
-// notification shows the live % in the status bar.
+// notification shows the download progress in the status bar.
 object UpdateDownloadState {
     val progress = MutableStateFlow<Int?>(null)
     val status = MutableStateFlow("")
@@ -102,7 +103,7 @@ class UpdateDownloadService : Service() {
                 } else {
                     UpdateDownloadState.progress.value = 100
                     UpdateDownloadState.status.value = "App update ho raha hai"
-                    notifyFinished(version, success = true)
+                    notifyFinished(version, success = true, file = file)
                     UpdateChecker.installApk(applicationContext, file)
                 }
             } catch (_: Exception) {
@@ -130,8 +131,7 @@ class UpdateDownloadService : Service() {
 
     private fun buildNotification(version: String, progress: Int, downloading: Boolean): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("SnapDown update $version download ho raha hai")
-            .setContentText("$progress%")
+            .setContentTitle("SnapDown Updating...")
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setProgress(100, progress, false)
             .setOngoing(downloading)
@@ -145,17 +145,25 @@ class UpdateDownloadService : Service() {
         manager.notify(NOTIF_ID, buildNotification(version, progress, downloading = true))
     }
 
-    private fun notifyFinished(version: String, success: Boolean) {
+    // "Install" action: the service cannot start the installer itself when
+    // the app is in background (Android blocks background activity starts),
+    // so the tap re-opens MainActivity in foreground, which then opens the
+    // installer from handleInstallExtra().
+    private fun installActionIntent(file: File): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_INSTALL_APK_PATH, file.absolutePath)
+        }
+        return PendingIntent.getActivity(
+            this, 1, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun notifyFinished(version: String, success: Boolean, file: File? = null) {
         val manager = getSystemService(NotificationManager::class.java) ?: return
-        val notif = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(
-                if (success) "SnapDown update $version download ho gaya"
-                else "SnapDown update download fail ho gaya"
-            )
-            .setContentText(
-                if (success) "Installer khul raha hai, Install dabao."
-                else "Dobara Update App dabao."
-            )
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(if (success) "SnapDown Update" else "SnapDown Update failed")
             .setSmallIcon(
                 if (success) android.R.drawable.stat_sys_download_done
                 else android.R.drawable.stat_notify_error
@@ -164,8 +172,14 @@ class UpdateDownloadService : Service() {
             .setOngoing(false)
             .setAutoCancel(true)
             .setContentIntent(openAppIntent())
-            .build()
-        manager.notify(NOTIF_ID, notif)
+        if (success && file != null) {
+            builder.addAction(
+                android.R.drawable.stat_sys_download_done,
+                "Install",
+                installActionIntent(file)
+            )
+        }
+        manager.notify(NOTIF_ID, builder.build())
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

@@ -29,10 +29,22 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import java.io.File
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        // Absolute path of a downloaded update APK, carried by the finished
+        // update notification's "Install" action.
+        const val EXTRA_INSTALL_APK_PATH = "install_apk_path"
+    }
+
+    // Guards the install against firing twice for the same file in this
+    // process (double tap on the notification action, onNewIntent redelivery).
+    private var lastInstallApkPath: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleInstallExtra(intent)
         val settings = SettingsStore(this)
         val gallery = GalleryStore(this)
         val profile = ProfileStore(this)
@@ -103,6 +115,36 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleInstallExtra(intent)
+    }
+
+    // Notification "Install" action (update finished while the app was in
+    // background): a background service cannot start the installer directly,
+    // so the tap brings the app to the foreground and the installer opens
+    // from this activity instead. Runs at most once per APK path.
+    private fun handleInstallExtra(intent: Intent?) {
+        val path = intent?.getStringExtra(EXTRA_INSTALL_APK_PATH) ?: return
+        intent.removeExtra(EXTRA_INSTALL_APK_PATH)
+        if (path.isBlank() || path == lastInstallApkPath) return
+        val file = File(path)
+        if (!file.exists()) return
+        // Already on this version (stale tap after the update installed).
+        val apkVersion = file.nameWithoutExtension.removePrefix("SnapDown-v")
+        if (apkVersion == BuildConfig.VERSION_NAME) return
+        // Partial or corrupt download: drop it; Settings > Update will
+        // re-download instead of looping on a broken file.
+        if (!UpdateChecker.isCompleteApk(file)) {
+            file.delete()
+            return
+        }
+        if (UpdateChecker.installApk(this, file)) {
+            lastInstallApkPath = path
         }
     }
 }

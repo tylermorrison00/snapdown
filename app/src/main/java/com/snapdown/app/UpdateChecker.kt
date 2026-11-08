@@ -50,13 +50,13 @@ object UpdateChecker {
     }
 
     suspend fun downloadApk(context: Context, info: UpdateInfo, onProgress: (Int) -> Unit): File? = withContext(Dispatchers.IO) {
+        val outFile = File(context.cacheDir, info.fileName)
         try {
             val conn = URL(info.downloadUrl).openConnection() as HttpURLConnection
             conn.connectTimeout = 15000
             conn.readTimeout = 30000
             if (conn.responseCode != 200) return@withContext null
             val total = conn.contentLength
-            val outFile = File(context.cacheDir, info.fileName)
             conn.inputStream.use { input ->
                 FileOutputStream(outFile).use { out ->
                     val buf = ByteArray(8192)
@@ -71,7 +71,21 @@ object UpdateChecker {
             }
             outFile
         } catch (_: Exception) {
+            // Never leave a partial APK behind: the Settings cache check
+            // treats an existing file as a finished download, so a partial
+            // file would loop on a broken install instead of re-downloading.
+            outFile.delete()
             null
+        }
+    }
+
+    /** True if the file is a complete, readable APK (ZIP central directory intact). */
+    fun isCompleteApk(file: File): Boolean {
+        return try {
+            java.util.zip.ZipFile(file).close()
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
