@@ -63,16 +63,14 @@ fun BrandGlyph(platformId: String, color: Color, cutout: Color, size: Dp) {
             }
             "facebook" -> {
                 // Bold "f" — same letterform as the brand mark.
-                drawIntoCanvas { canvas ->
-                    val paint = Paint().apply {
-                        this.color = color.toArgb()
-                        textSize = s * 0.78f
-                        typeface = Typeface.DEFAULT_BOLD
-                        textAlign = Paint.Align.CENTER
-                        isAntiAlias = true
-                    }
-                    canvas.nativeCanvas.drawText("f", s * 0.5f, s * 0.5f + s * 0.28f, paint)
+                val paint = Paint().apply {
+                    this.color = color.toArgb()
+                    textSize = s * 0.78f
+                    typeface = Typeface.DEFAULT_BOLD
+                    textAlign = Paint.Align.CENTER
+                    isAntiAlias = true
                 }
+                drawContext.canvas.nativeCanvas.drawText("f", s * 0.5f, s * 0.5f + s * 0.28f, paint)
             }
             "tiktok" -> {
                 // Musical note: head + stem + flag.
