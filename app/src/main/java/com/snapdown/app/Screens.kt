@@ -5,7 +5,11 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Build
+import android.widget.VideoView
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -26,6 +30,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Play
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +43,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -47,6 +54,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -144,6 +152,40 @@ private fun shareItem(context: Context, item: DownloadedItem) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(intent, "Share"))
+}
+
+// Edit-panel photo preview: pending photo, warna saved profile photo,
+// warna profile icon (koi launcher image nahi — wo launch crash karta tha).
+@Composable
+private fun AvatarImage(uriString: String?, size: Dp) {
+    val context = LocalContext.current
+    val bitmap by produceState<Bitmap?>(initialValue = null, uriString) {
+        value = withContext(Dispatchers.IO) { loadSampledBitmap(context, uriString) }
+    }
+    Box(
+        Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.Black)
+            .border(3.dp, PiloLime, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            androidx.compose.foundation.Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.matchParentSize().clip(CircleShape),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+        } else {
+            Icon(
+                Icons.Filled.Person,
+                contentDescription = null,
+                tint = PiloLime,
+                modifier = Modifier.size((size.value * 0.55).dp),
+            )
+        }
+    }
 }
 
 @Composable
@@ -481,7 +523,11 @@ private fun CompletedDownloadRow(
 }
 
 @Composable
-fun DownloadsScreen(gallery: GalleryStore, settings: SettingsStore) {
+fun DownloadsScreen(
+    gallery: GalleryStore,
+    settings: SettingsStore,
+    onPlayVideo: (DownloadedItem) -> Unit = {},
+) {
     val context = LocalContext.current
     var downloadedItems by remember { mutableStateOf(gallery.load()) }
     var manageItem by remember { mutableStateOf<DownloadedItem?>(null) }
@@ -522,7 +568,9 @@ fun DownloadsScreen(gallery: GalleryStore, settings: SettingsStore) {
                     CompletedDownloadRow(
                         item = item,
                         folderLabel = folderLabel,
-                        onOpen = { openItem(context, item) },
+                        // Video: in-app full-screen player; audio: bahar wala
+                        // player (pehle jesa).
+                        onOpen = { if (item.kind == "video") onPlayVideo(item) else openItem(context, item) },
                         onManage = { manageItem = item },
                     )
                 }
@@ -565,6 +613,48 @@ fun DownloadsScreen(gallery: GalleryStore, settings: SettingsStore) {
                     }
                 }
             }
+        }
+    }
+}
+
+// In-app full-screen video player: downloaded video wahin khulta hai — koi
+// external player nahi. Tap = pause/play, back button = wapas Downloads par.
+@Composable
+fun VideoPlayerScreen(item: DownloadedItem, onBack: () -> Unit) {
+    var videoView by remember { mutableStateOf<VideoView?>(null) }
+    var paused by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        AndroidView(
+            factory = { ctx ->
+                VideoView(ctx).apply {
+                    setVideoPath(item.path)
+                    setOnPreparedListener { start() }
+                    videoView = this
+                }
+            },
+            onRelease = { it.stopPlayback() },
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            Modifier.fillMaxSize().clickable {
+                videoView?.let {
+                    if (it.isPlaying) {
+                        it.pause()
+                        paused = true
+                    } else {
+                        it.start()
+                        paused = false
+                    }
+                }
+            },
+        )
+        if (paused) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.Play, contentDescription = null, tint = Color.White, modifier = Modifier.size(72.dp))
+            }
+        }
+        Box(Modifier.padding(start = 22.dp, top = 14.dp)) {
+            PiloBackButton(onBack)
         }
     }
 }
@@ -751,10 +841,14 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
     val updateProgress by UpdateDownloadState.progress.collectAsState()
     val bgStatus by UpdateDownloadState.status.collectAsState()
 
-    // Profile edit panel (preview .profile-edit): sirf naam badalta hai —
-    // photo ka option nahi (gol avatar me sirf profile icon hota hai).
+    // Profile edit panel (preview .profile-edit): photo + Change photo +
+    // name input + barabar Save/Cancel. Save par hi apply hota hai.
     var editOpen by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf(profile.name) }
+    var pendingPhoto by remember { mutableStateOf<String?>(null) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        pendingPhoto = uri?.toString()
+    }
 
     // Settings khulte hi update check karo, taake card sahi state dikhaye.
     LaunchedEffect(Unit) {
@@ -788,6 +882,7 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                 Row(
                     Modifier.clickable {
                         nameDraft = profile.name
+                        pendingPhoto = null
                         editOpen = !editOpen
                     },
                     verticalAlignment = Alignment.CenterVertically,
@@ -808,6 +903,22 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                     .border(1.dp, PiloBorder, RoundedCornerShape(22.dp))
                     .padding(18.dp),
             ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AvatarImage(pendingPhoto ?: profile.photoUri, size = 68.dp)
+                    Spacer(Modifier.width(14.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color(0xFF262626))
+                            .border(1.5.dp, PiloBorderLight, RoundedCornerShape(999.dp))
+                            .clickable { photoPicker.launch("image/*") }
+                            .padding(horizontal = 20.dp, vertical = 11.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Change photo", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.5.sp)
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
                 OutlinedTextField(
                     value = nameDraft,
                     onValueChange = { if (it.length <= 30) nameDraft = it },
@@ -830,6 +941,8 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                         onClick = {
                             val v = nameDraft.trim()
                             if (v.isNotEmpty()) profile.name = v
+                            pendingPhoto?.let { profile.photoUri = it }
+                            pendingPhoto = null
                             editOpen = false
                         },
                         modifier = Modifier.weight(1f),
@@ -839,6 +952,7 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                     ) { Text("Save", fontWeight = FontWeight.Black, fontSize = 15.sp) }
                     Button(
                         onClick = {
+                            pendingPhoto = null
                             editOpen = false
                         },
                         modifier = Modifier.weight(1f),

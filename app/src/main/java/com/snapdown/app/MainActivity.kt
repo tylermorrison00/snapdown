@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -66,17 +67,25 @@ class MainActivity : ComponentActivity() {
         setContent {
             SnapDownTheme {
                 var tab by remember { mutableStateOf("home") }
-                Scaffold(
-                    containerColor = PiloBlack,
-                    bottomBar = { PiloTabBar(tab) { tab = it } },
-                ) { padding ->
-                    Box(Modifier.padding(padding).fillMaxSize()) {
-                        when (tab) {
-                            "home" -> HomeScreen(settings, gallery, profile, sharedLink) { tab = "downloads" }
-                            "downloads" -> DownloadsScreen(gallery, settings)
-                            "accounts" -> AccountsScreen()
-                            "settings" -> SettingsScreen(settings, profile)
+                // In-app video player state: Downloads se video tap hote hi
+                // poori screen par khulta hai (Scaffold + nav ke upar).
+                var playingVideo by remember { mutableStateOf<DownloadedItem?>(null) }
+                Box(Modifier.fillMaxSize()) {
+                    Scaffold(
+                        containerColor = PiloBlack,
+                        bottomBar = { PiloTabBar(tab) { tab = it } },
+                    ) { padding ->
+                        Box(Modifier.padding(padding).fillMaxSize()) {
+                            when (tab) {
+                                "home" -> HomeScreen(settings, gallery, profile, sharedLink) { tab = "downloads" }
+                                "downloads" -> DownloadsScreen(gallery, settings) { playingVideo = it }
+                                "accounts" -> AccountsScreen()
+                                "settings" -> SettingsScreen(settings, profile)
+                            }
                         }
+                    }
+                    if (playingVideo != null) {
+                        VideoPlayerScreen(playingVideo!!) { playingVideo = null }
                     }
                 }
             }
@@ -114,18 +123,22 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Preview tabbar: white floating pill, 4 gol 58dp buttons (grey #ECECEA),
-// selected button POORA lime circle hota hai — chhota indicator nahi.
+// Preview tabbar: white floating pill, POORI width (space preview jesi),
+// 4 gol 58dp buttons, selected button POORA lime circle hota hai.
 @Composable
 private fun PiloTabBar(current: String, onSelect: (String) -> Unit) {
     Box(
         Modifier
+            .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 12.dp)
             .clip(RoundedCornerShape(999.dp))
             .background(Color.White)
             .padding(7.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
             val tabs = listOf(
                 Triple("home", Icons.Filled.Home, "Home"),
                 Triple("downloads", Icons.Filled.Download, "Downloads"),

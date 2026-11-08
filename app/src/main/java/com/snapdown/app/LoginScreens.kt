@@ -80,10 +80,6 @@ fun AccountsScreen() {
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(p.name, fontWeight = FontWeight.Black, color = Color.White, fontSize = 19.sp, textAlign = TextAlign.Center)
-                    if (loggedIn) {
-                        Spacer(Modifier.height(6.dp))
-                        Text("Connected", fontSize = 12.5.sp, color = PiloLime, fontWeight = FontWeight.ExtraBold)
-                    }
                     Spacer(Modifier.height(12.dp))
                     Row(
                         Modifier
