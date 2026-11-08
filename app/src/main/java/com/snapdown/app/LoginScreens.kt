@@ -11,12 +11,15 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,39 +47,41 @@ fun AccountsScreen() {
     // refresh is only a recomposition trigger after a login returns.
     @Suppress("UNUSED_VARIABLE")
     val tick = refresh
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Text("Accounts — Login Once", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
-        }
-        items(LoginManager.platforms) { p ->
-            val loggedIn = LoginManager.hasValidLogin(context, p.id)
-            Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(p.name, fontWeight = FontWeight.Bold)
-                        Text(if (loggedIn) "Logged in" else "Not logged in", fontSize = 12.sp)
-                    }
-                    if (p.id == "youtube") {
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Accounts", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+        Spacer(Modifier.height(16.dp))
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(LoginManager.platforms) { p ->
+                val loggedIn = LoginManager.hasValidLogin(context, p.id)
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = PiloCard),
+                ) {
+                    Column(
+                        Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(p.name, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                        Spacer(Modifier.height(4.dp))
                         Text(
-                            "YouTube: Google often blocks sign-in inside an embedded WebView. " +
-                                "Public videos work without login; logged-in-only videos may still fail.",
+                            if (loggedIn) "Connected" else "Not connected",
                             fontSize = 12.sp,
+                            color = if (loggedIn) PiloLime else PiloGrey,
                         )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { selected = p }) {
-                            Text(if (loggedIn) "Login again" else "Login")
-                        }
-                        if (loggedIn) {
-                            OutlinedButton(onClick = {
-                                LoginManager.clearLogin(context, p.id)
-                                refresh++
-                            }) { Text("Logout / Clear") }
-                        }
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = { selected = p },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = PiloLime,
+                                contentColor = Color.Black,
+                            ),
+                        ) { Text("Connect", fontWeight = FontWeight.Bold) }
                     }
                 }
             }
@@ -111,8 +116,11 @@ fun WebViewLoginScreen(platform: PlatformLogin, onDone: (Boolean) -> Unit, onCan
                 val ok = LoginManager.saveCookiesFromHeader(context, platform, header)
                 message = if (ok) "Login saved once for ${platform.name}." else "No cookies found yet — please finish logging in on the page first, then tap Done again."
                 if (ok) onDone(true)
-            }) { Text("Done — Save Login") }
-            OutlinedButton(onClick = onCancel) { Text("Cancel") }
+            }) { Text("Done") }
+            OutlinedButton(
+                onClick = onCancel,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+            ) { Text("Cancel") }
         }
         if (message.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))

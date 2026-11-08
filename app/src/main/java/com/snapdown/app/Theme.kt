@@ -1,41 +1,34 @@
 package com.snapdown.app
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// Premium palette: deep green-blue coloring from the approved Home mockup, logo colors only. Layout unchanged.
-private val Green = Color(0xFF22C55E)
-private val Blue = Color(0xFF2E9BFF)
-private val Cyan = Color(0xFF06B6D4)
+// Pilo theme: black + electric lime. One dark look everywhere — the app
+// has no light variant anymore, so the old green/blue palette is gone.
+val PiloLime = Color(0xFFC7FF2E)
+val PiloBlack = Color(0xFF0F0F0F)
+val PiloCard = Color(0xFF1C1C1C)
+val PiloCardAlt = Color(0xFF2E2E2E)
+val PiloGrey = Color(0xFF808080)
+val PiloWhite = Color(0xFFFFFFFF)
 
-private val DarkScheme = darkColorScheme(
-    primary = Cyan,
-    secondary = Green,
-    background = Color(0xFF0A5C46),
-    surface = Color(0xFF0F7A5C),
-    surfaceVariant = Color(0xFF146B52),
-    onBackground = Color(0xFFE8FFF4),
-    onSurface = Color(0xFFE8FFF4),
-)
-
-private val LightScheme = lightColorScheme(
-    primary = Blue,
-    secondary = Green,
-    background = Color(0xFFE6F7F0),
-    surface = Color(0xFFFFFFFF),
-    surfaceVariant = Color(0xFFD6F0E6),
-    onBackground = Color(0xFF0B3D2E),
-    onSurface = Color(0xFF0B3D2E),
+private val PiloScheme = darkColorScheme(
+    primary = PiloLime,
+    secondary = PiloLime,
+    background = PiloBlack,
+    surface = PiloCard,
+    surfaceVariant = PiloCardAlt,
+    onBackground = PiloWhite,
+    onSurface = PiloWhite,
+    onPrimary = PiloBlack,
 )
 
 @Composable
-fun SnapDownTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+fun SnapDownTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkScheme else LightScheme,
+        colorScheme = PiloScheme,
         content = content,
     )
 }
