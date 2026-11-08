@@ -12,8 +12,8 @@ android {
         applicationId = "com.snapdown.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 18
-        versionName = "1.2.6"
+        versionCode = 19
+        versionName = "1.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -81,10 +81,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.navigation:navigation-compose:2.7.7")
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3")
-    implementation("androidx.media3:media3-exoplayer:1.4.0")
 
     // Free/open-source download engine, no API key, no paid API.
     // youtubedl-android bundles yt-dlp. Correct Maven Central coordinate
