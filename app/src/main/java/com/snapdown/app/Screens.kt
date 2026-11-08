@@ -31,7 +31,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Play
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -650,7 +650,7 @@ fun VideoPlayerScreen(item: DownloadedItem, onBack: () -> Unit) {
         )
         if (paused) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Play, contentDescription = null, tint = Color.White, modifier = Modifier.size(72.dp))
+                Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(72.dp))
             }
         }
         Box(Modifier.padding(start = 22.dp, top = 14.dp)) {
