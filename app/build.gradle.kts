@@ -12,8 +12,8 @@ android {
         applicationId = "com.snapdown.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 15
-        versionName = "1.2.3"
+        versionCode = 16
+        versionName = "1.2.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += listOf("arm64-v8a")
