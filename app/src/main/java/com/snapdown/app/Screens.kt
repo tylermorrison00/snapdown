@@ -2,35 +2,52 @@ package com.snapdown.app
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -54,10 +71,121 @@ object ActiveDownload {
 // Downloads screen mid-download never cancels the download.
 private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+// Preview (pilo space, live v40) folder options: title + subtitle + value.
+// Purani values ("SnapDown" / "Movies" / "Downloads") normalize ho jati hain,
+// taake purani install par bhi sahi option selected dikhe.
+data class FolderOption(val label: String, val sub: String, val value: String)
+
+val folderOptions = listOf(
+    FolderOption("Movies / SnapDown", "Default location", "Movies / SnapDown"),
+    FolderOption("Downloads / SnapDown", "Inside the system Downloads folder", "Downloads / SnapDown"),
+    FolderOption("Internal storage / SnapDown", "App folder on this phone", "Internal storage / SnapDown"),
+    FolderOption("SD card / SnapDown", "Removable storage", "SD card / SnapDown"),
+)
+
+fun normalizeFolder(stored: String): String = when (stored) {
+    "Movies" -> "Movies / SnapDown"
+    "Downloads" -> "Downloads / SnapDown"
+    "SnapDown" -> "Internal storage / SnapDown"
+    else -> stored
+}
+
+// Preview download row ka title: platform + "video" (preview titleFromLink
+// ka fallback) — raw URL row me nahi dikhate.
+private fun displayTitle(url: String): String = when (DownloadEngine.detectPlatform(url)) {
+    "YouTube" -> "YouTube video"
+    "Instagram" -> "Instagram video"
+    "Facebook" -> "Facebook video"
+    "TikTok" -> "TikTok video"
+    else -> url.take(58)
+}
+
+// Preview dashed empty box (.dl-empty): 1.5dp dashed border, 22dp radius.
+fun Modifier.dashedBorder(color: Color, cornerRadius: Dp): Modifier = this.then(
+    Modifier.drawBehind {
+        val stroke = Stroke(
+            width = 1.5.dp.toPx(),
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(), 8.dp.toPx()), 0f),
+        )
+        drawRoundRect(color = color, style = stroke, cornerRadius = CornerRadius(cornerRadius.toPx()))
+    },
+)
+
+// Preview back button: 46dp gol, #232323 bg, #333 border, white arrow.
+@Composable
+fun PiloBackButton(onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(PiloDarkCircle)
+            .border(1.dp, PiloDarkCircleBorder, CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(19.dp))
+    }
+}
+
+private fun openItem(context: Context, item: DownloadedItem) {
+    // FileProvider zaroori hai: file:// URI dusri app ko dene par Android 7+
+    // app crash kar deta hai (FileUriExposedException).
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(item.path))
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, if (item.kind == "audio") "audio/*" else "video/*")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(intent)
+}
+
+private fun shareItem(context: Context, item: DownloadedItem) {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(item.path))
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = if (item.kind == "audio") "audio/*" else "video/*"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Share"))
+}
+
+// Edit-panel photo preview: pending photo, warna saved profile photo,
+// warna default S logo. (Bitmap load ProfileStore.kt wale loader se.)
+@Composable
+private fun AvatarImage(uriString: String?, size: Dp) {
+    val context = LocalContext.current
+    val bitmap by produceState<Bitmap?>(initialValue = null, uriString) {
+        value = withContext(Dispatchers.IO) { loadSampledBitmap(context, uriString) }
+    }
+    Box(
+        Modifier
+            .size(size)
+            .clip(CircleShape)
+            .border(3.dp, PiloLime, CircleShape),
+    ) {
+        if (bitmap != null) {
+            androidx.compose.foundation.Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.matchParentSize().clip(CircleShape),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+        } else {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(R.mipmap.ic_launcher_round),
+                contentDescription = null,
+                modifier = Modifier.matchParentSize().clip(CircleShape),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+        }
+    }
+}
+
 @Composable
 fun HomeScreen(
     settings: SettingsStore,
     gallery: GalleryStore,
+    profile: ProfileStore,
     sharedLink: String?,
     onDownloadStarted: () -> Unit = {},
 ) {
@@ -174,16 +302,16 @@ fun HomeScreen(
         return
     }
 
-    // Quality popup (Pilo theme): link paste → arrow → popup → Choose
-    // dabate hi download shuru aur Downloads screen khul jata hai.
+    // Quality popup: link paste → arrow → popup → Choose dabate hi
+    // download shuru aur Downloads screen khul jata hai.
     if (showQuality) {
         Dialog(onDismissRequest = { showQuality = false }) {
             Card(
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(containerColor = PiloCard),
             ) {
                 Column(Modifier.padding(20.dp)) {
-                    Text("Choose quality", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text("Choose quality", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.height(16.dp))
                     Text("Video quality", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Spacer(Modifier.height(8.dp))
@@ -232,155 +360,243 @@ fun HomeScreen(
                                 containerColor = PiloLime,
                                 contentColor = Color.Black,
                             ),
-                        ) { Text("Choose", fontWeight = FontWeight.Bold) }
+                        ) { Text("Choose", fontWeight = FontWeight.Black) }
                     }
                 }
             }
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(20.dp)) {
-        Text("Download Anything", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-        Spacer(Modifier.height(24.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = link,
-                onValueChange = { link = it },
-                placeholder = { Text("Paste link here…", color = Color.Gray) },
-                modifier = Modifier.weight(1f),
-                singleLine = true,
-                shape = RoundedCornerShape(28.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color.White,
-                    unfocusedContainerColor = Color.White,
-                    focusedTextColor = Color.Black,
-                    unfocusedTextColor = Color.Black,
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                ),
+    // Preview home: heading upar (avatar ke sath), link box screen ke
+    // bilkul center me — transparent box, halki border, dim placeholder.
+    Column(Modifier.fillMaxSize().padding(horizontal = 22.dp).padding(top = 14.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+            Text(
+                "Download\nAnything",
+                color = Color.White,
+                fontSize = 41.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = (-0.8).sp,
+                lineHeight = 43.sp,
             )
-            Spacer(Modifier.width(12.dp))
-            IconButton(
-                onClick = { openQualityOrLogin() },
-                modifier = Modifier.size(56.dp).clip(CircleShape).background(PiloLime),
-            ) {
-                Icon(
-                    Icons.Filled.ArrowForward,
-                    contentDescription = "Download",
-                    tint = Color.Black,
-                    modifier = Modifier.size(28.dp),
-                )
+            ProfileAvatar(profile, size = 56.dp)
+        }
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .widthIn(max = 320.dp)
+                        .fillMaxWidth()
+                        .border(1.5.dp, Color.White.copy(alpha = 0.32f), RoundedCornerShape(28.dp))
+                        .padding(start = 22.dp, top = 9.dp, bottom = 9.dp, end = 9.dp),
+                ) {
+                    BasicTextField(
+                        value = link,
+                        onValueChange = { link = it },
+                        singleLine = true,
+                        textStyle = TextStyle(color = Color.White, fontSize = 15.5.sp, fontWeight = FontWeight.ExtraBold),
+                        modifier = Modifier.weight(1f),
+                        decorationBox = { inner ->
+                            if (link.isEmpty()) {
+                                Text("Paste link here...", color = PiloPlaceholder, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                            inner()
+                        },
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Box(
+                        Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(PiloCardAlt)
+                            .clickable { openQualityOrLogin() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Filled.ArrowForward, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                }
+                if (status.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(status, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp, textAlign = TextAlign.Center)
+                }
             }
         }
-        val detected = LoginManager.platformForUrl(link)
-        if (link.isNotBlank() && detected != null) {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Detected: ${detected.name}",
-                color = PiloLime, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-            )
-        }
-        if (status.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            Text(status, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+    }
+}
+
+// Preview download row: poori row lime se bharti hai (fill = progress),
+// 55% ke baad text kala ho jata hai; complete par poori lime row + kala
+// circle + lime check. Tap = Open, long-press = Share / Delete.
+@Composable
+private fun DownloadProgressRow() {
+    val progress = ActiveDownload.progress.coerceIn(0f, 100f)
+    val dark = progress > 55f
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(PiloRow)
+            .drawBehind {
+                val w = size.width * (progress / 100f)
+                drawRect(color = PiloLime, topLeft = androidx.compose.ui.geometry.Offset.Zero, size = Size(w, size.height))
+            }
+            .border(1.dp, PiloBorder, RoundedCornerShape(22.dp)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 19.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    displayTitle(ActiveDownload.title),
+                    fontWeight = FontWeight.Black,
+                    fontSize = 17.sp,
+                    color = if (dark) Color.Black else Color.White,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    "Downloading · ${progress.toInt()}%",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (dark) PiloDarkOnLime else PiloMeta,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(Color(0xFF333333)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.ArrowForward, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+            }
         }
     }
 }
 
 @Composable
-fun DownloadsScreen(gallery: GalleryStore) {
+private fun CompletedDownloadRow(
+    item: DownloadedItem,
+    folderLabel: String,
+    onOpen: () -> Unit,
+    onManage: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(PiloLime)
+            .pointerInput(item.id) {
+                detectTapGestures(onTap = { onOpen() }, onLongPress = { onManage() })
+            },
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 19.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(item.title, fontWeight = FontWeight.Black, fontSize = 17.sp, color = Color.Black, maxLines = 1)
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    "Downloaded · Saved to $folderLabel",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = PiloDarkOnLime,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(Color.Black),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Check, contentDescription = null, tint = PiloLime, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun DownloadsScreen(gallery: GalleryStore, settings: SettingsStore) {
     val context = LocalContext.current
     var downloadedItems by remember { mutableStateOf(gallery.load()) }
+    var manageItem by remember { mutableStateOf<DownloadedItem?>(null) }
     // Download khatam hote hi list refresh karo, taake naya item foran dikhe.
     LaunchedEffect(ActiveDownload.running) {
         if (!ActiveDownload.running) downloadedItems = gallery.load()
     }
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Downloads", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-        Spacer(Modifier.height(12.dp))
-        if (ActiveDownload.running) {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = PiloCard),
-                modifier = Modifier.fillMaxWidth(),
+    val folderLabel = normalizeFolder(settings.downloadFolder)
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 22.dp).padding(top = 14.dp)) {
+        Spacer(Modifier.height(8.dp))
+        Text("Downloads", fontSize = 29.sp, fontWeight = FontWeight.Black, color = Color.White, letterSpacing = (-0.4).sp)
+        Spacer(Modifier.height(18.dp))
+        if (downloadedItems.isEmpty() && !ActiveDownload.running) {
+            Box(
+                Modifier.fillMaxWidth().dashedBorder(PiloBorderLight, 22.dp).padding(28.dp, 20.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("Downloading…", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("No downloads yet", fontWeight = FontWeight.Black, fontSize = 15.5.sp, color = Color.White)
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        "${ActiveDownload.platform} • ${ActiveDownload.title}",
-                        fontSize = 12.sp, color = PiloGrey, maxLines = 1,
+                        "Paste a link on Home and tap the arrow — your video will appear here while it downloads.",
+                        fontSize = 14.sp,
+                        color = PiloMeta,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 22.sp,
                     )
-                    Spacer(Modifier.height(8.dp))
-                    LinearProgressIndicator(
-                        progress = { ActiveDownload.progress / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = PiloLime,
-                        trackColor = PiloCardAlt,
-                    )
-                    Text("${ActiveDownload.progress.toInt()}%", fontSize = 12.sp, color = Color.White)
                 }
             }
-            Spacer(Modifier.height(12.dp))
-        }
-        if (downloadedItems.isEmpty() && !ActiveDownload.running) {
-            Text(
-                "No downloads yet. Paste a link on Home and tap the arrow.",
-                fontSize = 14.sp, color = PiloGrey,
-            )
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(downloadedItems) { item ->
-                    Card(
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = PiloCard),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text(item.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
-                            Text("${item.platform} • ${item.kind}", fontSize = 12.sp, color = PiloGrey)
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = {
-                                        // FileProvider zaroori hai: file:// URI dusri app ko
-                                        // dene par Android 7+ app crash kar deta hai
-                                        // (FileUriExposedException) — Open dabate hi app
-                                        // band hone ki asal wajah yehi thi.
-                                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(item.path))
-                                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(uri, if (item.kind == "audio") "audio/*" else "video/*")
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        }
-                                        context.startActivity(intent)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = PiloLime,
-                                        contentColor = Color.Black,
-                                    ),
-                                ) { Text("Open") }
-                                OutlinedButton(
-                                    onClick = {
-                                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(item.path))
-                                        val intent = Intent(Intent.ACTION_SEND).apply {
-                                            type = if (item.kind == "audio") "audio/*" else "video/*"
-                                            putExtra(Intent.EXTRA_STREAM, uri)
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        context.startActivity(Intent.createChooser(intent, "Share"))
-                                    },
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                                ) { Text("Share") }
-                                TextButton(
-                                    onClick = {
-                                        File(item.path).delete()
-                                        gallery.remove(item.id)
-                                        downloadedItems = gallery.load()
-                                    },
-                                    colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
-                                ) { Text("Delete") }
-                            }
-                        }
+                if (ActiveDownload.running) {
+                    item { DownloadProgressRow() }
+                }
+                items(downloadedItems, key = { it.id }) { item ->
+                    CompletedDownloadRow(
+                        item = item,
+                        folderLabel = folderLabel,
+                        onOpen = { openItem(context, item) },
+                        onManage = { manageItem = item },
+                    )
+                }
+            }
+        }
+    }
+
+    // Long-press menu: Share / Delete (preview row par koi button nahi
+    // hota — actions is dialog me rehte hain, look preview jesa rehta hai).
+    val item = manageItem
+    if (item != null) {
+        Dialog(onDismissRequest = { manageItem = null }) {
+            Card(
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = PiloCard),
+            ) {
+                Column(Modifier.padding(20.dp)) {
+                    Text(item.title, color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp, maxLines = 2)
+                    Spacer(Modifier.height(4.dp))
+                    Text("${item.platform} • ${item.kind}", color = PiloMeta, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = { manageItem = null; shareItem(context, item) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PiloLime, contentColor = Color.Black),
+                        ) { Text("Share", fontWeight = FontWeight.Black) }
+                        OutlinedButton(
+                            onClick = {
+                                File(item.path).delete()
+                                gallery.remove(item.id)
+                                downloadedItems = gallery.load()
+                                manageItem = null
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = PiloDisconnect),
+                        ) { Text("Delete", fontWeight = FontWeight.Black) }
                     }
                 }
             }
@@ -388,60 +604,93 @@ fun DownloadsScreen(gallery: GalleryStore) {
     }
 }
 
+// Preview set-row: flat row, neeche hairline divider, icon circle + label
+// + grey subtitle + chevron — card nahi.
 @Composable
-fun SettingsRow(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = PiloCard),
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun SettingsFlatRow(
+    icon: ImageVector,
+    label: String,
+    sub: String?,
+    onClick: () -> Unit,
+    showDivider: Boolean,
+) {
+    Column(Modifier.fillMaxWidth().clickable { onClick() }) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
-                Modifier.size(40.dp).clip(CircleShape).background(PiloCardAlt),
+                Modifier.size(40.dp).clip(CircleShape).background(Color(0xFF262626)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, contentDescription = null, tint = Color.White)
+                Icon(icon, contentDescription = null, tint = PiloIconGrey, modifier = Modifier.size(19.dp))
             }
             Spacer(Modifier.width(12.dp))
-            Text(label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            Spacer(Modifier.weight(1f))
-            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = PiloGrey)
+            Column(Modifier.weight(1f)) {
+                Text(label, color = PiloLabelWhite, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                if (sub != null) {
+                    Text(sub, color = PiloMeta, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = PiloSubtle, modifier = Modifier.size(17.dp))
+        }
+        if (showDivider) {
+            HorizontalDivider(color = PiloHairline, thickness = 1.dp)
         }
     }
 }
 
 @Composable
 fun FolderPage(settings: SettingsStore, onBack: () -> Unit) {
-    var folder by remember { mutableStateOf(settings.downloadFolder) }
-    val options = listOf("SnapDown", "Movies", "Downloads")
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    val current = normalizeFolder(settings.downloadFolder)
+    Column(Modifier.fillMaxSize().padding(horizontal = 22.dp).padding(top = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-            }
-            Text("Downloads folder", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            PiloBackButton(onBack)
+            Spacer(Modifier.width(14.dp))
+            Text("Downloads folder", fontSize = 24.sp, fontWeight = FontWeight.Black, color = Color.White)
         }
         Spacer(Modifier.height(16.dp))
-        Text("Choose where downloads are saved.", fontSize = 13.sp, color = PiloGrey)
-        Spacer(Modifier.height(12.dp))
-        options.forEach { opt ->
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = PiloCard),
-                modifier = Modifier.fillMaxWidth().clickable {
-                    folder = opt
-                    settings.downloadFolder = opt
-                },
+        Text(
+            "Choose where downloaded videos are saved.",
+            fontSize = 14.sp,
+            color = PiloMeta,
+            fontWeight = FontWeight.Bold,
+            lineHeight = 22.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        folderOptions.forEach { opt ->
+            val selected = current == opt.value
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(PiloCard)
+                    .border(1.5.dp, if (selected) PiloLime else PiloBorder, RoundedCornerShape(18.dp))
+                    .clickable {
+                        settings.downloadFolder = opt.value
+                        onBack()
+                    }
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(opt, color = Color.White, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    if (folder == opt) {
-                        Icon(Icons.Filled.Check, contentDescription = null, tint = PiloLime)
+                Column(Modifier.weight(1f)) {
+                    Text(opt.label, color = Color.White, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                    Text(opt.sub, color = PiloMeta, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                }
+                Box(
+                    Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) PiloLime else Color.Transparent)
+                        .border(2.dp, if (selected) PiloLime else Color(0xFF3D3D3D), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (selected) {
+                        Icon(Icons.Filled.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(13.dp))
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
         }
     }
 }
@@ -452,48 +701,80 @@ fun ClearLoginPage(onBack: () -> Unit) {
     var refresh by remember { mutableStateOf(0) }
     @Suppress("UNUSED_VARIABLE")
     val tick = refresh
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    // Preview: sirf connected accounts dikhte hain — unconnected rows nahi.
+    val connected = LoginManager.platforms.filter { LoginManager.hasValidLogin(context, it.id) }
+    Column(Modifier.fillMaxSize().padding(horizontal = 22.dp).padding(top = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-            }
-            Text("Clear login", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            PiloBackButton(onBack)
+            Spacer(Modifier.width(14.dp))
+            Text("Clear login", fontSize = 24.sp, fontWeight = FontWeight.Black, color = Color.White)
         }
         Spacer(Modifier.height(16.dp))
-        Text("Connected accounts ko disconnect karo.", fontSize = 13.sp, color = PiloGrey)
-        Spacer(Modifier.height(12.dp))
-        LoginManager.platforms.forEach { p ->
-            val loggedIn = LoginManager.hasValidLogin(context, p.id)
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = PiloCard),
-                modifier = Modifier.fillMaxWidth(),
+        Text(
+            "Accounts connected in this app. Disconnect removes the saved login session.",
+            fontSize = 14.sp,
+            color = PiloMeta,
+            fontWeight = FontWeight.Bold,
+            lineHeight = 22.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        if (connected.isEmpty()) {
+            Box(
+                Modifier.fillMaxWidth().padding(top = 10.dp).dashedBorder(PiloBorderLight, 22.dp).padding(28.dp, 20.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(p.name, color = Color.White, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    if (loggedIn) {
-                        OutlinedButton(
-                            onClick = {
-                                LoginManager.clearLogin(context, p.id)
-                                refresh++
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = Color(0xFFFF6B6B),
-                            ),
-                        ) { Text("Disconnect") }
-                    } else {
-                        Text("Not connected", fontSize = 12.sp, color = PiloGrey)
-                    }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("No accounts connected", fontWeight = FontWeight.Black, fontSize = 15.5.sp, color = Color.White)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Connect an account from the Accounts tab and it will show up here.",
+                        fontSize = 14.sp,
+                        color = PiloMeta,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 22.sp,
+                    )
                 }
             }
-            Spacer(Modifier.height(8.dp))
+        } else {
+            connected.forEach { p ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(PiloCard)
+                        .border(1.dp, PiloBorder, RoundedCornerShape(18.dp))
+                        .padding(horizontal = 16.dp, vertical = 15.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PlatformTile(p.id, size = 40.dp, corner = 11.dp)
+                    Spacer(Modifier.width(13.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(p.name, color = Color.White, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                        Text("Connected", color = PiloMeta, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = {
+                            LoginManager.clearLogin(context, p.id)
+                            refresh++
+                        },
+                        shape = RoundedCornerShape(999.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF262626),
+                            contentColor = PiloDisconnect,
+                        ),
+                        modifier = Modifier.border(1.dp, PiloDisconnectBorder, RoundedCornerShape(999.dp)),
+                    ) { Text("Disconnect", fontWeight = FontWeight.Black, fontSize = 13.sp) }
+                }
+            }
         }
     }
 }
 
 @Composable
-fun SettingsScreen(settings: SettingsStore) {
+fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
     val context = LocalContext.current
     var page by remember { mutableStateOf("main") }
     var updateTitle by remember { mutableStateOf("Checking for updates…") }
@@ -504,6 +785,15 @@ fun SettingsScreen(settings: SettingsStore) {
     // se nikalne ya app background me jane par bhi progress nahi rukti.
     val updateProgress by UpdateDownloadState.progress.collectAsState()
     val bgStatus by UpdateDownloadState.status.collectAsState()
+
+    // Profile edit panel (preview .profile-edit): photo + Change photo +
+    // name input + barabar Save/Cancel. Save par hi apply hota hai.
+    var editOpen by remember { mutableStateOf(false) }
+    var nameDraft by remember { mutableStateOf(profile.name) }
+    var pendingPhoto by remember { mutableStateOf<String?>(null) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        pendingPhoto = uri?.toString()
+    }
 
     // Settings khulte hi update check karo, taake card sahi state dikhaye.
     LaunchedEffect(Unit) {
@@ -521,14 +811,116 @@ fun SettingsScreen(settings: SettingsStore) {
         return
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-        // Update card (lime): title upar, Update button neeche right side.
+    val connectedCount = LoginManager.platforms.count { LoginManager.hasValidLogin(context, it.id) }
+    val clearLoginSub = if (connectedCount == 0) "No accounts connected"
+        else "$connectedCount account${if (connectedCount == 1) "" else "s"} connected"
+
+    // Preview profile screen: koi "Settings" heading nahi — upar profile
+    // header (avatar + naam + Edit Profile), phir update card, phir rows.
+    Column(Modifier.fillMaxSize().padding(horizontal = 22.dp).padding(top = 14.dp)) {
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ProfileAvatar(profile, size = 64.dp)
+            Spacer(Modifier.width(15.dp))
+            Column {
+                Text(profile.name, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Black)
+                Row(
+                    Modifier.clickable {
+                        nameDraft = profile.name
+                        pendingPhoto = null
+                        editOpen = !editOpen
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Edit Profile", color = PiloPlaceholder, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = PiloPlaceholder, modifier = Modifier.size(13.dp))
+                }
+            }
+        }
+
+        if (editOpen) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 18.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(PiloCard)
+                    .border(1.dp, PiloBorder, RoundedCornerShape(22.dp))
+                    .padding(18.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AvatarImage(pendingPhoto ?: profile.photoUri, size = 68.dp)
+                    Spacer(Modifier.width(14.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color(0xFF262626))
+                            .border(1.5.dp, PiloBorderLight, RoundedCornerShape(999.dp))
+                            .clickable { photoPicker.launch("image/*") }
+                            .padding(horizontal = 20.dp, vertical = 11.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Change photo", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.5.sp)
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                OutlinedTextField(
+                    value = nameDraft,
+                    onValueChange = { if (it.length <= 30) nameDraft = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    textStyle = TextStyle(color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color(0xFF262626),
+                        unfocusedContainerColor = Color(0xFF262626),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = PiloLime,
+                        unfocusedBorderColor = PiloBorderLight,
+                    ),
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = {
+                            val v = nameDraft.trim()
+                            if (v.isNotEmpty()) profile.name = v
+                            pendingPhoto?.let { profile.photoUri = it }
+                            pendingPhoto = null
+                            editOpen = false
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(999.dp),
+                        contentPadding = PaddingValues(vertical = 14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PiloLime, contentColor = Color.Black),
+                    ) { Text("Save", fontWeight = FontWeight.Black, fontSize = 15.sp) }
+                    Button(
+                        onClick = {
+                            pendingPhoto = null
+                            editOpen = false
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(999.dp),
+                        contentPadding = PaddingValues(vertical = 14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF262626), contentColor = Color.White),
+                    ) { Text("Cancel", fontWeight = FontWeight.Black, fontSize = 15.sp) }
+                }
+            }
+        }
+
+        // Update card (lime): title upar, chhota kala pill button neeche
+        // right side — preview jesa (kala bg, lime text, 12sp).
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(PiloLime).padding(20.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 18.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .background(PiloLime)
+                .padding(20.dp),
         ) {
-            Text(updateTitle, color = Color.Black, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(16.dp))
+            Text(updateTitle, color = Color.Black, fontSize = 19.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Button(
                     onClick = {
@@ -553,14 +945,16 @@ fun SettingsScreen(settings: SettingsStore) {
                         UpdateDownloadService.start(context, info)
                     },
                     enabled = updateInfo != null,
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(999.dp),
+                    contentPadding = PaddingValues(horizontal = 13.dp, vertical = 7.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Black,
-                        contentColor = Color.White,
-                        disabledContainerColor = Color.Black.copy(alpha = 0.5f),
-                        disabledContentColor = Color.White.copy(alpha = 0.7f),
+                        containerColor = Color(0xFF0D0D0D),
+                        contentColor = PiloLime,
+                        disabledContainerColor = Color(0xFF0D0D0D).copy(alpha = 0.5f),
+                        disabledContentColor = PiloLime.copy(alpha = 0.7f),
                     ),
-                ) { Text(if (updateInfo == null) "Updated" else "Update", fontWeight = FontWeight.Bold) }
+                    modifier = Modifier.alpha(if (updateInfo == null) 0.85f else 1f),
+                ) { Text(if (updateInfo == null) "Updated" else "Update", fontWeight = FontWeight.Black, fontSize = 12.sp) }
             }
             if (updateProgress != null) {
                 Spacer(Modifier.height(12.dp))
@@ -583,8 +977,23 @@ fun SettingsScreen(settings: SettingsStore) {
             // after download. Android still shows its own system Install
             // screen once — that one tap cannot be skipped.
         }
-        SettingsRow(icon = Icons.Filled.Folder, label = "Downloads folder", onClick = { page = "folder" })
-        SettingsRow(icon = Icons.Filled.Delete, label = "Clear login", onClick = { page = "clearlogin" })
+
+        Column(Modifier.padding(top = 12.dp)) {
+            SettingsFlatRow(
+                icon = Icons.Filled.Folder,
+                label = "Downloads folder",
+                sub = normalizeFolder(settings.downloadFolder),
+                onClick = { page = "folder" },
+                showDivider = true,
+            )
+            SettingsFlatRow(
+                icon = Icons.Filled.Logout,
+                label = "Clear login",
+                sub = clearLoginSub,
+                onClick = { page = "clearlogin" },
+                showDivider = false,
+            )
+        }
         Spacer(Modifier.weight(1f))
         // Installed version, so a screenshot proves which build is on the phone.
         Text(

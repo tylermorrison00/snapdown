@@ -15,7 +15,9 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("default_quality", "Best") ?: "Best"
         set(v) = prefs.edit().putString("default_quality", v).apply()
 
+    // Preview default: "Movies / SnapDown" (pilo space, folder page).
+    // Purani values FolderPage me normalize ho jati hain.
     var downloadFolder: String
-        get() = prefs.getString("download_folder", "SnapDown") ?: "SnapDown"
+        get() = prefs.getString("download_folder", "Movies / SnapDown") ?: "Movies / SnapDown"
         set(v) = prefs.edit().putString("download_folder", v).apply()
 }

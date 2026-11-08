@@ -5,16 +5,22 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -29,6 +35,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val settings = SettingsStore(this)
         val gallery = GalleryStore(this)
+        val profile = ProfileStore(this)
         val sharedLink = intent?.takeIf { it.action == Intent.ACTION_SEND }
             ?.getStringExtra(Intent.EXTRA_TEXT)
             ?.let { Regex("""https?://\S+""").find(it)?.value }
@@ -44,65 +51,55 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     containerColor = PiloBlack,
                     bottomBar = {
-                        // Pilo floating pill nav: white rounded bar, lime
-                        // indicator behind the selected icon, icons only.
+                        // Preview tabbar: white floating pill, 4 gol 58dp
+                        // buttons (grey #ECECEA), selected button POORA lime
+                        // circle hota hai — chhota indicator nahi.
                         Box(
                             Modifier
                                 .padding(horizontal = 20.dp, vertical = 12.dp)
-                                .clip(RoundedCornerShape(32.dp))
+                                .clip(RoundedCornerShape(999.dp))
                                 .background(Color.White)
+                                .padding(7.dp),
                         ) {
-                            NavigationBar(
-                                containerColor = Color.White,
-                                contentColor = Color.Black,
-                                tonalElevation = 0.dp,
-                            ) {
-                                val itemColors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = Color.Black,
-                                    unselectedIconColor = Color.Black.copy(alpha = 0.55f),
-                                    indicatorColor = PiloLime,
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                val tabs = listOf(
+                                    Triple("home", Icons.Filled.Home, "Home"),
+                                    Triple("downloads", Icons.Filled.Download, "Downloads"),
+                                    Triple("accounts", Icons.Outlined.Person, "Accounts"),
+                                    Triple("settings", Icons.Outlined.Settings, "Settings"),
                                 )
-                                NavigationBarItem(
-                                    selected = route == "home",
-                                    onClick = { nav.navigate("home") { popUpTo("home") { inclusive = true } } },
-                                    icon = { Icon(Icons.Filled.Home, contentDescription = "Home") },
-                                    label = null,
-                                    colors = itemColors,
-                                )
-                                NavigationBarItem(
-                                    selected = route == "downloads",
-                                    onClick = { nav.navigate("downloads") { launchSingleTop = true } },
-                                    icon = { Icon(Icons.Filled.Download, contentDescription = "Downloads") },
-                                    label = null,
-                                    colors = itemColors,
-                                )
-                                NavigationBarItem(
-                                    selected = route == "accounts",
-                                    onClick = { nav.navigate("accounts") { launchSingleTop = true } },
-                                    icon = { Icon(Icons.Filled.Person, contentDescription = "Accounts") },
-                                    label = null,
-                                    colors = itemColors,
-                                )
-                                NavigationBarItem(
-                                    selected = route == "settings",
-                                    onClick = { nav.navigate("settings") { launchSingleTop = true } },
-                                    icon = { Icon(Icons.Filled.Settings, contentDescription = "Settings") },
-                                    label = null,
-                                    colors = itemColors,
-                                )
+                                tabs.forEach { (tabRoute, icon, label) ->
+                                    val selected = route == tabRoute
+                                    Box(
+                                        Modifier
+                                            .size(58.dp)
+                                            .clip(CircleShape)
+                                            .background(if (selected) PiloLime else PiloNavGrey)
+                                            .clickable {
+                                                if (tabRoute == "home") {
+                                                    nav.navigate("home") { popUpTo("home") { inclusive = true } }
+                                                } else {
+                                                    nav.navigate(tabRoute) { launchSingleTop = true }
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(icon, contentDescription = label, tint = Color.Black, modifier = Modifier.size(25.dp))
+                                    }
+                                }
                             }
                         }
                     }
                 ) { padding ->
                     NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding)) {
                         composable("home") {
-                            HomeScreen(settings, gallery, sharedLink) {
+                            HomeScreen(settings, gallery, profile, sharedLink) {
                                 nav.navigate("downloads") { launchSingleTop = true }
                             }
                         }
-                        composable("downloads") { DownloadsScreen(gallery) }
+                        composable("downloads") { DownloadsScreen(gallery, settings) }
                         composable("accounts") { AccountsScreen() }
-                        composable("settings") { SettingsScreen(settings) }
+                        composable("settings") { SettingsScreen(settings, profile) }
                     }
                 }
             }
