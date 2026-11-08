@@ -75,8 +75,13 @@ object DownloadEngine {
                 YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE)
             } catch (_: Exception) {
             }
-        } catch (e: Exception) {
-            // Leave initialized=false; download attempts will surface the error.
+        } catch (_: Throwable) {
+            // Throwable, not Exception: a native-library / class-load Error
+            // (UnsatisfiedLinkError, NoClassDefFoundError) on this
+            // background thread would otherwise kill the whole app at
+            // launch — Android kills the process on ANY uncaught exception,
+            // even on a background thread. Leave initialized=false;
+            // download attempts will surface the error.
         }
     }
 
