@@ -328,6 +328,7 @@ fun HomeScreen(
                                 selected = quality == q,
                                 onClick = { quality = q },
                                 label = { Text(q) },
+                                shape = RoundedCornerShape(999.dp),
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = PiloLime,
                                     selectedLabelColor = Color.Black,
@@ -352,7 +353,7 @@ fun HomeScreen(
                         OutlinedButton(
                             onClick = { showQuality = false },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(999.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                         ) { Text("Cancel") }
                         Button(
@@ -362,7 +363,7 @@ fun HomeScreen(
                                 startDownload()
                             },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(999.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = PiloLime,
                                 contentColor = Color.Black,
