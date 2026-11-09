@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -327,7 +328,8 @@ fun HomeScreen(
                             FilterChip(
                                 selected = quality == q,
                                 onClick = { quality = q },
-                                label = { Text(q) },
+                                label = { Text(q, textAlign = TextAlign.Center) },
+                                modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(999.dp),
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = PiloLime,
@@ -835,12 +837,10 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
     var page by remember { mutableStateOf("main") }
     var updateTitle by remember { mutableStateOf("Checking for updates…") }
     var updateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
-    var updateStatus by remember { mutableStateOf("") }
     var downloadedFile by remember { mutableStateOf<java.io.File?>(null) }
     // Background download state: service update karta hai, is liye Settings
     // se nikalne ya app background me jane par bhi progress nahi rukti.
     val updateProgress by UpdateDownloadState.progress.collectAsState()
-    val bgStatus by UpdateDownloadState.status.collectAsState()
 
     // Profile edit panel (preview .profile-edit): photo + Change photo +
     // name input + barabar Save/Cancel. Save par hi apply hota hai.
@@ -942,7 +942,9 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                         onClick = {
                             val v = nameDraft.trim()
                             if (v.isNotEmpty()) profile.name = v
-                            pendingPhoto?.let { profile.photoUri = it }
+                            // Photo app ki apni storage me COPY hoti hai —
+                            // content:// URI ki permission aarzi hoti hai.
+                            pendingPhoto?.let { profile.savePhoto(context, Uri.parse(it)) }
                             pendingPhoto = null
                             editOpen = false
                         },
@@ -965,8 +967,9 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
             }
         }
 
-        // Update card (lime): title upar, chhota kala pill button neeche
-        // right side — preview jesa (kala bg, lime text, 12sp).
+        // Update card (lime): pehli row me title + chhota kala pill button
+        // right side; neeche sirf progress bar + % — koi status text nahi,
+        // is liye card pehle se chhota hai.
         Column(
             Modifier
                 .fillMaxWidth()
@@ -975,9 +978,17 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                 .background(PiloLime)
                 .padding(20.dp),
         ) {
-            Text(updateTitle, color = Color.Black, fontSize = 19.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    updateTitle,
+                    color = Color.Black,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.weight(1f),
+                )
                 Button(
                     onClick = {
                         val info = updateInfo ?: return@Button
@@ -987,7 +998,6 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                             if (UpdateChecker.isCompleteApk(cached)) {
                                 downloadedFile = cached
                                 UpdateChecker.installApk(context, cached)
-                                updateStatus = "App update ho raha hai"
                                 return@Button
                             }
                             // Partial or corrupt download: drop it and re-download below.
@@ -995,7 +1005,6 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                         }
                         downloadedFile?.takeIf { it.exists() }?.let { file ->
                             UpdateChecker.installApk(context, file)
-                            updateStatus = "App update ho raha hai"
                             return@Button
                         }
                         // Notification permission (Android 13+) mang lo, phir
@@ -1008,7 +1017,6 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                                 ActivityCompat.requestPermissions(it, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
                             }
                         }
-                        updateStatus = "App update ho raha hai"
                         UpdateDownloadService.start(context, info)
                     },
                     enabled = updateInfo != null,
@@ -1032,13 +1040,6 @@ fun SettingsScreen(settings: SettingsStore, profile: ProfileStore) {
                     trackColor = Color.Black.copy(alpha = 0.2f),
                 )
                 Text("${updateProgress ?: 0}%", fontSize = 12.sp, color = Color.Black)
-            }
-            // Sirf aik line status: background service wala status aaye to wahi,
-            // warna button wala status — dono aik saath nahi dikhne chahiye.
-            val shownStatus = if (bgStatus.isNotEmpty()) bgStatus else updateStatus
-            if (shownStatus.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(shownStatus, fontSize = 13.sp, color = Color.Black)
             }
             // No extra Install button: the installer opens automatically
             // after download. Android still shows its own system Install

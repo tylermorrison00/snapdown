@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import java.io.File
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -43,13 +44,37 @@ class ProfileStore(context: Context) {
     var photoUri: String?
         get() = prefs.getString("profile_photo_uri", null)
         set(v) = prefs.edit().putString("profile_photo_uri", v).apply()
+
+    // Picked photo ko app ki apni storage me COPY karke save karo, phir us
+    // local file ka path store karo. Wajah: content:// URI ki read
+    // permission AARZI hoti hai — picker se milti hai, app band/restart
+    // hone par khatam ho sakti hai — is liye photo KABHI dikhti thi KABHI
+    // nahi. Apni file hamesha load hoti hai, kisi permission par nahi.
+    fun savePhoto(context: Context, uri: Uri): Boolean {
+        return try {
+            val file = File(context.filesDir, "profile_photo.jpg")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
+            } ?: return false
+            photoUri = file.absolutePath
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
 }
 
 internal fun loadSampledBitmap(context: Context, uriString: String?): Bitmap? {
     if (uriString.isNullOrBlank()) return null
     return try {
-        context.contentResolver.openInputStream(Uri.parse(uriString))?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = 4 })
+        // Apni storage ki local file (savePhoto se): seedha file se load.
+        if (uriString.startsWith("/")) {
+            BitmapFactory.decodeFile(uriString, BitmapFactory.Options().apply { inSampleSize = 4 })
+        } else {
+            // Purana content:// URI (ya preview): resolver se.
+            context.contentResolver.openInputStream(Uri.parse(uriString))?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = 4 })
+            }
         }
     } catch (_: Exception) {
         null
